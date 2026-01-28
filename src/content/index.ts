@@ -1,5 +1,9 @@
 import { runAutomation } from './automation'
-import type { AutomationResultMessage, RunAutomationMessage } from '../shared/messaging'
+import type {
+  AutomationResultMessage,
+  CancelAutomationMessage,
+  RunAutomationMessage,
+} from '../shared/messaging'
 
 declare global {
   interface Window {
@@ -9,13 +13,43 @@ declare global {
 
 const LOG_PREFIX = '[HiBob Helper]'
 let running = false
+let cancelRequested = false
 
 if (!window.__hibobHelperInjected) {
   window.__hibobHelperInjected = true
 
   chrome.runtime.onMessage.addListener(
-    (message: RunAutomationMessage, _sender, sendResponse) => {
-      if (!message || message.type !== 'RUN_AUTOMATION') return
+    (
+      message: RunAutomationMessage | CancelAutomationMessage,
+      _sender,
+      sendResponse
+    ) => {
+      if (!message) return
+
+      if (message.type === 'CANCEL_AUTOMATION') {
+        if (running) {
+          cancelRequested = true
+          const response: AutomationResultMessage = {
+            type: 'AUTOMATION_RESULT',
+            requestId: message.requestId,
+            success: true,
+            cancelled: true,
+          }
+          sendResponse(response)
+          return
+        }
+
+        const response: AutomationResultMessage = {
+          type: 'AUTOMATION_RESULT',
+          requestId: message.requestId,
+          success: false,
+          error: 'No automation running.',
+        }
+        sendResponse(response)
+        return
+      }
+
+      if (message.type !== 'RUN_AUTOMATION') return
 
       if (running) {
         const busyResponse: AutomationResultMessage = {
@@ -29,13 +63,20 @@ if (!window.__hibobHelperInjected) {
       }
 
       running = true
-      runAutomation(message.payload.clockIn, message.payload.clockOut, message.requestId)
-        .then((processed) => {
+      cancelRequested = false
+      runAutomation(
+        message.payload.clockIn,
+        message.payload.clockOut,
+        message.requestId,
+        () => cancelRequested
+      )
+        .then((result) => {
           const response: AutomationResultMessage = {
             type: 'AUTOMATION_RESULT',
             requestId: message.requestId,
-            success: true,
-            processed,
+            success: !result.cancelled,
+            processed: result.processed,
+            cancelled: result.cancelled,
           }
           sendResponse(response)
         })
@@ -51,6 +92,7 @@ if (!window.__hibobHelperInjected) {
         })
         .finally(() => {
           running = false
+          cancelRequested = false
         })
 
       return true

@@ -117,14 +117,19 @@ const findSidebar = () => {
   return candidates.find((candidate) => isElementVisible(candidate)) ?? null
 }
 
-const waitForSidebar = async (rowLabel: string, previousSnapshot: string) => {
+const waitForSidebar = async (
+  rowLabel: string,
+  previousSnapshot: string,
+  shouldCancel: () => boolean
+) => {
   const normalizedLabel = normalize(rowLabel)
   const normalizedPrevious = normalize(previousSnapshot)
-  return waitForCondition(() => {
-    const sidebar = findSidebar()
-    if (!sidebar) return false
-    if (!normalizedLabel) return sidebar
-    const sidebarText = normalize(sidebar.textContent ?? '')
+  return waitForCondition(
+    () => {
+      const sidebar = findSidebar()
+      if (!sidebar) return false
+      if (!normalizedLabel) return sidebar
+      const sidebarText = normalize(sidebar.textContent ?? '')
     if (sidebarText.includes(normalizedLabel)) return sidebar
     if (
       normalizedPrevious &&
@@ -138,16 +143,21 @@ const waitForSidebar = async (rowLabel: string, previousSnapshot: string) => {
     }
     if (!normalizedPrevious && sidebarText) return sidebar
     return false
-  })
+  },
+    { shouldCancel }
+  )
 }
 
-const waitForEntryForm = async (sidebar: HTMLElement) =>
-  waitForCondition(() => {
-    const clockIn = findTimePickerInputs(sidebar, 'Clock in')
-    const clockOut = findTimePickerInputs(sidebar, 'Clock out')
-    if (clockIn && clockOut) return { clockIn, clockOut }
-    return null
-  }, { root: sidebar })
+const waitForEntryForm = async (sidebar: HTMLElement, shouldCancel: () => boolean) =>
+  waitForCondition(
+    () => {
+      const clockIn = findTimePickerInputs(sidebar, 'Clock in')
+      const clockOut = findTimePickerInputs(sidebar, 'Clock out')
+      if (clockIn && clockOut) return { clockIn, clockOut }
+      return null
+    },
+    { root: sidebar, shouldCancel }
+  )
 
 const findAddEntryButton = (sidebar: HTMLElement) => {
   return (
@@ -215,7 +225,10 @@ const hasMissingTimeErrors = (root: ParentNode) => {
   return text.includes('missing clock in') || text.includes('missing clock out')
 }
 
-const waitForSaveCompletion = async (sidebar: HTMLElement) => {
+const waitForSaveCompletion = async (
+  sidebar: HTMLElement,
+  shouldCancel: () => boolean
+) => {
   const successToast = () => {
     const toastCandidates = Array.from(
       document.querySelectorAll<HTMLElement>(
@@ -231,7 +244,7 @@ const waitForSaveCompletion = async (sidebar: HTMLElement) => {
   try {
     await waitForCondition(
       () => !document.body.contains(sidebar) || !isElementVisible(sidebar) || successToast(),
-      { timeout: 20000 }
+      { timeout: 20000, shouldCancel }
     )
     return true
   } catch {
@@ -243,7 +256,8 @@ const waitForSaveCompletion = async (sidebar: HTMLElement) => {
 export const runAutomation = async (
   clockIn: string,
   clockOut: string,
-  requestId: string
+  requestId: string,
+  shouldCancel: () => boolean
 ) => {
   const sendProgress = (completed: number, total: number, saved: number) => {
     chrome.runtime.sendMessage({
@@ -264,6 +278,10 @@ export const runAutomation = async (
   sendProgress(completed, total, processed)
 
   while (iterations < 50) {
+    if (shouldCancel()) {
+      console.info(`${LOG_PREFIX} Cancellation requested. Stopping.`)
+      return { processed, cancelled: true }
+    }
     const pendingRowIds = getWarningRowIds().filter(
       (rowId) => !processedRowIds.has(rowId)
     )
@@ -292,6 +310,10 @@ export const runAutomation = async (
     const rowLabel = extractRowLabel(row)
 
     try {
+      if (shouldCancel()) {
+        console.info(`${LOG_PREFIX} Cancellation requested. Stopping.`)
+        return { processed, cancelled: true }
+      }
       const previousSnapshot = findSidebar()?.textContent ?? ''
       row.scrollIntoView({ block: 'center', behavior: 'smooth' })
       await sleep(250)
@@ -299,7 +321,7 @@ export const runAutomation = async (
       const clickable = getClickTarget(row)
       clickElement(clickable)
 
-      const sidebar = await waitForSidebar(rowLabel, previousSnapshot)
+      const sidebar = await waitForSidebar(rowLabel, previousSnapshot, shouldCancel)
       const sidebarRoot =
         sidebar.closest<HTMLElement>(
           '#attendance-right-panel, [role="complementary"], sidebar'
@@ -311,11 +333,11 @@ export const runAutomation = async (
       if (!clockInInput || !clockOutInput) {
         const addEntryButton = await waitForCondition(
           () => findAddEntryButton(sidebarRoot),
-          { root: sidebarRoot, timeout: 15000 }
+          { root: sidebarRoot, timeout: 15000, shouldCancel }
         )
         clickElement(addEntryButton)
 
-        const formInputs = await waitForEntryForm(sidebarRoot)
+        const formInputs = await waitForEntryForm(sidebarRoot, shouldCancel)
         clockInInput = formInputs.clockIn
         clockOutInput = formInputs.clockOut
       }
@@ -336,6 +358,7 @@ export const runAutomation = async (
       await waitForCondition(() => !hasMissingTimeErrors(sidebarRoot), {
         root: sidebarRoot,
         timeout: 4000,
+        shouldCancel,
       }).catch(() => {
         console.warn(`${LOG_PREFIX} Time validation still showing missing warnings.`)
       })
@@ -349,7 +372,11 @@ export const runAutomation = async (
       }
 
       clickElement(saveButton)
-      const saved = await waitForSaveCompletion(sidebarRoot)
+      if (shouldCancel()) {
+        console.info(`${LOG_PREFIX} Cancellation requested. Stopping.`)
+        return { processed, cancelled: true }
+      }
+      const saved = await waitForSaveCompletion(sidebarRoot, shouldCancel)
       if (!saved) {
         console.warn(`${LOG_PREFIX} Save did not complete for ${rowLabel}.`)
         continue
@@ -363,15 +390,19 @@ export const runAutomation = async (
           const refreshedRow = findRowById(rowId)
           return refreshedRow ? !isWarningRow(refreshedRow) : true
         },
-        { timeout: 8000 }
+        { timeout: 8000, shouldCancel }
       ).catch(() => {
         console.warn(`${LOG_PREFIX} Warning badge did not clear for ${rowLabel}.`)
       })
       await sleep(400)
     } catch (error) {
+      if (shouldCancel() || (error instanceof Error && error.message === 'Cancelled')) {
+        console.info(`${LOG_PREFIX} Cancellation requested. Stopping.`)
+        return { processed, cancelled: true }
+      }
       console.error(`${LOG_PREFIX} Failed on row ${rowLabel}.`, error)
     }
   }
 
-  return processed
+  return { processed, cancelled: false }
 }

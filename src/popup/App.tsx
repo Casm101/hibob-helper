@@ -4,6 +4,7 @@ import { TARGET_URL_HINT, isSupportedUrl } from "../shared/config";
 import type {
     AutomationProgressMessage,
     AutomationResultMessage,
+    CancelAutomationMessage,
     RunAutomationMessage,
 } from "../shared/messaging";
 import { isValidTime } from "../shared/validation";
@@ -15,10 +16,12 @@ const statusStyles: Record<string, string> = {
     success:
         "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200",
     error: "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-200",
+    cancelled:
+        "bg-slate-200 text-slate-700 dark:bg-slate-700/60 dark:text-slate-200",
 };
 
 type StatusState = {
-    state: "idle" | "running" | "success" | "error";
+    state: "idle" | "running" | "success" | "error" | "cancelled";
     message: string;
 };
 
@@ -28,6 +31,22 @@ const initialStatus: StatusState = {
 };
 
 const sendMessage = (message: RunAutomationMessage) =>
+    new Promise<AutomationResultMessage | undefined>((resolve) => {
+        chrome.runtime.sendMessage(message, (response) => {
+            if (chrome.runtime.lastError) {
+                resolve({
+                    type: "AUTOMATION_RESULT",
+                    requestId: message.requestId,
+                    success: false,
+                    error: chrome.runtime.lastError.message,
+                });
+                return;
+            }
+            resolve(response);
+        });
+    });
+
+const sendCancelMessage = (message: CancelAutomationMessage) =>
     new Promise<AutomationResultMessage | undefined>((resolve) => {
         chrome.runtime.sendMessage(message, (response) => {
             if (chrome.runtime.lastError) {
@@ -106,6 +125,18 @@ export const App = () => {
             return;
         }
 
+        if (response.cancelled) {
+            const processed = response.processed ?? progress.saved;
+            setStatus({
+                state: "cancelled",
+                message: `Automation cancelled. Updated ${processed} row${
+                    processed === 1 ? "" : "s"
+                }.`,
+            });
+            activeRequestId.current = null;
+            return;
+        }
+
         if (!response.success) {
             setStatus({
                 state: "error",
@@ -123,6 +154,15 @@ export const App = () => {
             message: `Automation complete. Updated ${processed} row${processed === 1 ? "" : "s"}.`,
         });
         activeRequestId.current = null;
+    };
+
+    const handleCancel = async () => {
+        if (!activeRequestId.current) return;
+        setStatus({ state: "running", message: "Cancelling automation..." });
+        await sendCancelMessage({
+            type: "CANCEL_AUTOMATION",
+            requestId: activeRequestId.current,
+        });
     };
 
     const progressPercent =
@@ -189,16 +229,27 @@ export const App = () => {
                     </div>
                 ) : null}
 
-                <button
-                    type="button"
-                    onClick={handleRun}
-                    disabled={!canRun}
-                    className="mt-4 w-full rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 dark:bg-rose-500 dark:text-white dark:hover:bg-rose-400 dark:disabled:bg-slate-700"
-                >
-                    {status.state === "running"
-                        ? "Running Automation…"
-                        : "Run Automation"}
-                </button>
+                <div className="mt-4 flex w-full gap-2">
+                    <button
+                        type="button"
+                        onClick={handleRun}
+                        disabled={!canRun}
+                        className="w-full rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 dark:bg-rose-500 dark:text-white dark:hover:bg-rose-400 dark:disabled:bg-slate-700"
+                    >
+                        {status.state === "running"
+                            ? "Running…"
+                            : "Run Automation"}
+                    </button>
+                    {status.state === "running" ? (
+                        <button
+                            type="button"
+                            onClick={handleCancel}
+                            className="rounded-xl border border-slate-200 bg-white/70 px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-700 dark:border-white/10 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-800"
+                        >
+                            Cancel
+                        </button>
+                    ) : null}
+                </div>
 
                 {status.state === "running" ? (
                     <div className="mt-3 space-y-2">

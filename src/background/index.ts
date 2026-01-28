@@ -1,5 +1,9 @@
 import { isSupportedUrl } from '../shared/config'
-import type { AutomationResultMessage, RunAutomationMessage } from '../shared/messaging'
+import type {
+  AutomationResultMessage,
+  CancelAutomationMessage,
+  RunAutomationMessage,
+} from '../shared/messaging'
 
 const queryActiveTab = () =>
   new Promise<chrome.tabs.Tab | undefined>((resolve) => {
@@ -8,7 +12,10 @@ const queryActiveTab = () =>
     })
   })
 
-const sendMessageToTab = (tabId: number, message: RunAutomationMessage) =>
+const sendMessageToTab = (
+  tabId: number,
+  message: RunAutomationMessage | CancelAutomationMessage
+) =>
   new Promise<{ response?: AutomationResultMessage; error?: string }>((resolve) => {
     chrome.tabs.sendMessage(tabId, message, (response) => {
       if (chrome.runtime.lastError) {
@@ -85,9 +92,42 @@ const handleRunAutomation = async (
   return firstAttempt.response
 }
 
-chrome.runtime.onMessage.addListener((message: RunAutomationMessage, _sender, sendResponse) => {
-  if (!message || message.type !== 'RUN_AUTOMATION') return
+const handleCancelAutomation = async (
+  message: CancelAutomationMessage
+): Promise<AutomationResultMessage> => {
+  const activeTab = await queryActiveTab()
+  if (!activeTab?.id || !isSupportedUrl(activeTab.url)) {
+    return {
+      type: 'AUTOMATION_RESULT',
+      requestId: message.requestId,
+      success: false,
+      error: 'Site not supported. Open the target page and try again.',
+    }
+  }
 
-  handleRunAutomation(message).then(sendResponse)
-  return true
-})
+  const result = await sendMessageToTab(activeTab.id, message)
+  if (result.response) return result.response
+
+  return {
+    type: 'AUTOMATION_RESULT',
+    requestId: message.requestId,
+    success: false,
+    error: result.error ?? 'Unable to reach the content script.',
+  }
+}
+
+chrome.runtime.onMessage.addListener(
+  (message: RunAutomationMessage | CancelAutomationMessage, _sender, sendResponse) => {
+    if (!message) return
+
+    if (message.type === 'RUN_AUTOMATION') {
+      handleRunAutomation(message).then(sendResponse)
+      return true
+    }
+
+    if (message.type === 'CANCEL_AUTOMATION') {
+      handleCancelAutomation(message).then(sendResponse)
+      return true
+    }
+  }
+)

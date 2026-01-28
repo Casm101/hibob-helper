@@ -41,7 +41,13 @@ export const waitForCondition = async <T>(
     timeout = 15000,
     interval = 200,
     root = document,
-  }: { timeout?: number; interval?: number; root?: ParentNode } = {}
+    shouldCancel,
+  }: {
+    timeout?: number
+    interval?: number
+    root?: ParentNode
+    shouldCancel?: () => boolean
+  } = {}
 ): Promise<T> => {
   const start = Date.now()
 
@@ -56,6 +62,11 @@ export const waitForCondition = async <T>(
 
     const checkNow = () => {
       if (settled) return
+      if (shouldCancel?.()) {
+        cleanup(observer, intervalId)
+        reject(new Error('Cancelled'))
+        return
+      }
       const result = condition()
       if (result) {
         cleanup(observer, intervalId)

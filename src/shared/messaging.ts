@@ -9,11 +9,17 @@ export type RunAutomationMessage = {
   payload: AutomationPayload
 }
 
+export type CancelAutomationMessage = {
+  type: 'CANCEL_AUTOMATION'
+  requestId: string
+}
+
 export type AutomationResultMessage = {
   type: 'AUTOMATION_RESULT'
   requestId: string
   success: boolean
   processed?: number
+  cancelled?: boolean
   error?: string
 }
 
@@ -27,5 +33,6 @@ export type AutomationProgressMessage = {
 
 export type ExtensionMessage =
   | RunAutomationMessage
+  | CancelAutomationMessage
   | AutomationResultMessage
   | AutomationProgressMessage
