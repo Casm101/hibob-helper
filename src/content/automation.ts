@@ -257,7 +257,8 @@ export const runAutomation = async (
   clockIn: string,
   clockOut: string,
   requestId: string,
-  shouldCancel: () => boolean
+  shouldCancel: () => boolean,
+  onProgress?: (progress: { total: number; completed: number; saved: number }) => void
 ) => {
   const sendProgress = (completed: number, total: number, saved: number) => {
     chrome.runtime.sendMessage({
@@ -267,6 +268,7 @@ export const runAutomation = async (
       completed,
       saved,
     })
+    onProgress?.({ total, completed, saved })
   }
 
   const processedRowIds = new Set<string>()
@@ -312,8 +314,8 @@ export const runAutomation = async (
     try {
       if (shouldCancel()) {
         console.info(`${LOG_PREFIX} Cancellation requested. Stopping.`)
-        return { processed, cancelled: true }
-      }
+      return { processed, cancelled: true }
+    }
       const previousSnapshot = findSidebar()?.textContent ?? ''
       row.scrollIntoView({ block: 'center', behavior: 'smooth' })
       await sleep(250)
@@ -374,8 +376,8 @@ export const runAutomation = async (
       clickElement(saveButton)
       if (shouldCancel()) {
         console.info(`${LOG_PREFIX} Cancellation requested. Stopping.`)
-        return { processed, cancelled: true }
-      }
+      return { processed, cancelled: true }
+    }
       const saved = await waitForSaveCompletion(sidebarRoot, shouldCancel)
       if (!saved) {
         console.warn(`${LOG_PREFIX} Save did not complete for ${rowLabel}.`)

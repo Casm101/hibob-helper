@@ -7,7 +7,7 @@
     "default_popup": "popup/index.html",
     "default_title": "HiBob Helper"
   },
-  "permissions": ["activeTab", "scripting"],
+  "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": ["https://app.hibob.com/*"],
   "background": {
     "service_worker": "background.js",
@@ -17,8 +17,7 @@
     {
       "matches": ["https://app.hibob.com/*"],
       "js": ["contentScript.js"],
-      "run_at": "document_idle",
-      "type": "module"
+      "run_at": "document_idle"
     }
   ]
 }

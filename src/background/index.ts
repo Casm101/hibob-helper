@@ -31,7 +31,12 @@ const injectContentScript = (tabId: number) =>
     chrome.scripting.executeScript(
       {
         target: { tabId },
-        files: ['contentScript.js'],
+        func: () => {
+          const globalAny = globalThis as { __hibobHelperInjected?: boolean }
+          if (globalAny.__hibobHelperInjected) return
+          const url = chrome.runtime.getURL('contentScript.js')
+          import(url)
+        },
       },
       () => {
         if (chrome.runtime.lastError) {

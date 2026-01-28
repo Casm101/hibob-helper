@@ -8,6 +8,7 @@ import type {
     RunAutomationMessage,
 } from "../shared/messaging";
 import { isValidTime } from "../shared/validation";
+import { getStoredTimes, setStoredTimes } from "../shared/storage";
 
 const statusStyles: Record<string, string> = {
     idle: "bg-slate-100 text-slate-600 dark:bg-slate-800/70 dark:text-slate-200",
@@ -69,6 +70,7 @@ export const App = () => {
     const [status, setStatus] = useState<StatusState>(initialStatus);
     const [progress, setProgress] = useState({ total: 0, completed: 0, saved: 0 });
     const activeRequestId = useRef<string | null>(null);
+    const hasLoadedTimes = useRef(false);
 
     useEffect(() => {
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -76,6 +78,19 @@ export const App = () => {
             setSupported(isSupportedUrl(url));
         });
     }, []);
+
+    useEffect(() => {
+        getStoredTimes().then((times) => {
+            setClockIn(times.clockIn);
+            setClockOut(times.clockOut);
+            hasLoadedTimes.current = true;
+        });
+    }, []);
+
+    useEffect(() => {
+        if (!hasLoadedTimes.current) return;
+        setStoredTimes({ clockIn, clockOut });
+    }, [clockIn, clockOut]);
 
     useEffect(() => {
         const handler = (message: AutomationProgressMessage) => {
