@@ -240,10 +240,28 @@ const waitForSaveCompletion = async (sidebar: HTMLElement) => {
   }
 }
 
-export const runAutomation = async (clockIn: string, clockOut: string) => {
+export const runAutomation = async (
+  clockIn: string,
+  clockOut: string,
+  requestId: string
+) => {
+  const sendProgress = (completed: number, total: number, saved: number) => {
+    chrome.runtime.sendMessage({
+      type: 'AUTOMATION_PROGRESS',
+      requestId,
+      total,
+      completed,
+      saved,
+    })
+  }
+
   const processedRowIds = new Set<string>()
   let processed = 0
   let iterations = 0
+  const total = getWarningRowIds().length
+  let completed = 0
+
+  sendProgress(completed, total, processed)
 
   while (iterations < 50) {
     const pendingRowIds = getWarningRowIds().filter(
@@ -257,6 +275,8 @@ export const runAutomation = async (clockIn: string, clockOut: string) => {
     const rowId = pendingRowIds[0]
     processedRowIds.add(rowId)
     iterations += 1
+    completed += 1
+    sendProgress(completed, total, processed)
 
     const row = findRowById(rowId)
     if (!row) {
@@ -336,6 +356,7 @@ export const runAutomation = async (clockIn: string, clockOut: string) => {
       }
 
       processed += 1
+      sendProgress(completed, total, processed)
       console.info(`${LOG_PREFIX} Updated ${rowLabel}.`)
       await waitForCondition(
         () => {

@@ -29,7 +29,7 @@ if (!window.__hibobHelperInjected) {
       }
 
       running = true
-      runAutomation(message.payload.clockIn, message.payload.clockOut)
+      runAutomation(message.payload.clockIn, message.payload.clockOut, message.requestId)
         .then((processed) => {
           const response: AutomationResultMessage = {
             type: 'AUTOMATION_RESULT',

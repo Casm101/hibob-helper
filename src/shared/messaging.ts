@@ -17,4 +17,15 @@ export type AutomationResultMessage = {
   error?: string
 }
 
-export type ExtensionMessage = RunAutomationMessage | AutomationResultMessage
+export type AutomationProgressMessage = {
+  type: 'AUTOMATION_PROGRESS'
+  requestId: string
+  total: number
+  completed: number
+  saved?: number
+}
+
+export type ExtensionMessage =
+  | RunAutomationMessage
+  | AutomationResultMessage
+  | AutomationProgressMessage
