@@ -1,0 +1,19 @@
+@import "@fontsource/space-grotesk/400.css";
+@import "@fontsource/space-grotesk/500.css";
+@import "@fontsource/space-grotesk/600.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: "Space Grotesk", sans-serif;
+  }
+
+  body {
+    margin: 0;
+    min-width: 360px;
+    min-height: 360px;
+  }
+}
