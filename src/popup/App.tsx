@@ -5,10 +5,10 @@ import type { AutomationResultMessage, RunAutomationMessage } from '../shared/me
 import { isValidTime } from '../shared/validation'
 
 const statusStyles: Record<string, string> = {
-  idle: 'bg-slate-100 text-slate-600',
-  running: 'bg-amber-100 text-amber-700',
-  success: 'bg-emerald-100 text-emerald-700',
-  error: 'bg-rose-100 text-rose-700',
+  idle: 'bg-slate-100 text-slate-600 dark:bg-slate-800/70 dark:text-slate-200',
+  running: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-200',
+  success: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200',
+  error: 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-200',
 }
 
 type StatusState = {
@@ -88,23 +88,25 @@ export const App = () => {
   }
 
   return (
-    <div className="flex min-h-[360px] w-[360px] flex-col bg-gradient-to-br from-rose-50 via-slate-50 to-amber-50 p-4 text-slate-900">
-      <div className="flex-1 rounded-2xl border border-white/70 bg-white/80 p-4 shadow-panel backdrop-blur">
+    <div className="flex min-h-[360px] w-[360px] flex-col bg-gradient-to-br from-rose-50 via-slate-50 to-amber-50 p-4 text-slate-900 dark:from-[#0f0f12] dark:via-[#1a1a20] dark:to-[#24151c] dark:text-slate-100">
+      <div className="flex-1 rounded-2xl border border-white/70 bg-white/80 p-4 shadow-panel backdrop-blur dark:border-white/10 dark:bg-[#1a1a22]/80">
         <header className="flex items-start justify-between gap-3">
           <div className="space-y-1 animate-fade-up">
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-rose-500">
               HiBob Helper
             </p>
-            <h1 className="text-lg font-semibold text-slate-900">
+            <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
               Attendance Auto-Fill
             </h1>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-500 dark:text-slate-300">
               Apply your default time entry to flagged rows.
             </p>
           </div>
           <div
             className={`rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wider ${
-              supported ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+              supported
+                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200'
+                : 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-200'
             }`}
           >
             {supported ? 'Supported' : 'Unsupported'}
@@ -129,13 +131,13 @@ export const App = () => {
         </div>
 
         {!supported ? (
-          <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">
+          <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700 dark:border-rose-400/40 dark:bg-rose-500/10 dark:text-rose-200">
             Site not supported. Open {TARGET_URL_HINT} and try again.
           </div>
         ) : null}
 
         {!timesValid ? (
-          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
+          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200">
             Enter valid 24-hour times (HH:MM).
           </div>
         ) : null}
@@ -144,7 +146,7 @@ export const App = () => {
           type="button"
           onClick={handleRun}
           disabled={!canRun}
-          className="mt-4 w-full rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+          className="mt-4 w-full rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 dark:bg-rose-500 dark:text-white dark:hover:bg-rose-400 dark:disabled:bg-slate-700"
         >
           {status.state === 'running' ? 'Running Automation…' : 'Run Automation'}
         </button>
@@ -156,7 +158,7 @@ export const App = () => {
         </div>
       </div>
 
-      <p className="mt-3 text-center text-[10px] font-medium uppercase tracking-[0.2em] text-slate-400">
+      <p className="mt-3 text-center text-[10px] font-medium uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
         Target: {TARGET_URL_HINT}
       </p>
     </div>
