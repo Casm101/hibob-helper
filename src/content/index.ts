@@ -26,6 +26,27 @@ const getStoredTimes = () =>
     )
   })
 
+const getStoredSettings = () =>
+  new Promise<{ randomizeEnabled: boolean; randomizeMinutes: number }>((resolve) => {
+    chrome.storage.sync.get(
+      {
+        hibobHelperRandomizeEnabled: false,
+        hibobHelperRandomizeMinutes: 15,
+      },
+      (result) => {
+        const values = result as Record<string, unknown>
+        const enabled = values.hibobHelperRandomizeEnabled
+        const minutes = values.hibobHelperRandomizeMinutes
+        const parsedMinutes =
+          typeof minutes === 'number' ? minutes : Number.parseInt(String(minutes ?? ''), 10)
+        resolve({
+          randomizeEnabled: typeof enabled === 'boolean' ? enabled : Boolean(enabled ?? false),
+          randomizeMinutes: Number.isFinite(parsedMinutes) ? parsedMinutes : 15,
+        })
+      }
+    )
+  })
+
 const isValidTime = (value: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value)
 
 declare global {
@@ -41,7 +62,8 @@ if (!window.__hibobHelperInjected) {
     clockIn: string,
     clockOut: string,
     requestId: string,
-    onProgress?: (progress: { total: number; completed: number; saved: number }) => void
+    onProgress?: (progress: { total: number; completed: number; saved: number }) => void,
+    options?: { randomizeEnabled?: boolean; randomizeMinutes?: number }
   ) => {
     if (running) {
       return {
@@ -63,7 +85,8 @@ if (!window.__hibobHelperInjected) {
         clockOut,
         requestId,
         () => cancelRequested,
-        onProgress
+        onProgress,
+        options
       )
 
       return {
@@ -219,6 +242,7 @@ if (!window.__hibobHelperInjected) {
       if (!actionButton) return
       actionButton.disabled = true
       const times = await getStoredTimes()
+      const settings = await getStoredSettings()
       if (!isValidTime(times.clockIn) || !isValidTime(times.clockOut)) {
         console.warn(`${LOG_PREFIX} Invalid stored times. Please update the popup.`)
         resetUi()
@@ -233,7 +257,8 @@ if (!window.__hibobHelperInjected) {
         times.clockIn,
         times.clockOut,
         requestId,
-        updateProgress
+        updateProgress,
+        settings
       )
 
       if (response?.cancelled) {
@@ -285,7 +310,12 @@ if (!window.__hibobHelperInjected) {
       startAutomation(
         message.payload.clockIn,
         message.payload.clockOut,
-        message.requestId
+        message.requestId,
+        undefined,
+        {
+          randomizeEnabled: message.payload.randomizeEnabled,
+          randomizeMinutes: message.payload.randomizeMinutes,
+        }
       ).then(({ response }) => {
         sendResponse(response)
       })

@@ -1,6 +1,8 @@
 export type AutomationPayload = {
   clockIn: string
   clockOut: string
+  randomizeEnabled?: boolean
+  randomizeMinutes?: number
 }
 
 export type RunAutomationMessage = {

@@ -220,6 +220,37 @@ const parseTime = (value: string) => {
   }
 }
 
+const toMinutes = (value: string) => {
+  const [hours = '0', minutes = '0'] = value.split(':')
+  const hoursValue = Number.parseInt(hours, 10)
+  const minutesValue = Number.parseInt(minutes, 10)
+  const total =
+    Number.isFinite(hoursValue) && Number.isFinite(minutesValue)
+      ? hoursValue * 60 + minutesValue
+      : 0
+  return Math.min(1439, Math.max(0, total))
+}
+
+const fromMinutes = (totalMinutes: number) => {
+  const safeMinutes = Math.min(1439, Math.max(0, totalMinutes))
+  const hours = Math.floor(safeMinutes / 60)
+  const minutes = safeMinutes % 60
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+}
+
+const getRandomOffset = (maxMinutes: number) => {
+  if (!Number.isFinite(maxMinutes) || maxMinutes <= 0) return 0
+  const magnitude = Math.floor(Math.random() * (maxMinutes + 1))
+  const direction = Math.random() < 0.5 ? -1 : 1
+  return magnitude * direction
+}
+
+const applyOffset = (timeValue: string, offsetMinutes: number) => {
+  if (!offsetMinutes) return timeValue
+  const base = toMinutes(timeValue)
+  return fromMinutes(base + offsetMinutes)
+}
+
 const hasMissingTimeErrors = (root: ParentNode) => {
   const text = normalize((root as HTMLElement).textContent ?? '')
   return text.includes('missing clock in') || text.includes('missing clock out')
@@ -258,8 +289,11 @@ export const runAutomation = async (
   clockOut: string,
   requestId: string,
   shouldCancel: () => boolean,
-  onProgress?: (progress: { total: number; completed: number; saved: number }) => void
+  onProgress?: (progress: { total: number; completed: number; saved: number }) => void,
+  options?: { randomizeEnabled?: boolean; randomizeMinutes?: number }
 ) => {
+  const randomizeEnabled = options?.randomizeEnabled ?? false
+  const randomizeMinutes = options?.randomizeMinutes ?? 0
   const sendProgress = (completed: number, total: number, saved: number) => {
     chrome.runtime.sendMessage({
       type: 'AUTOMATION_PROGRESS',
@@ -349,8 +383,11 @@ export const runAutomation = async (
         continue
       }
 
-      const clockInParts = parseTime(clockIn)
-      const clockOutParts = parseTime(clockOut)
+      const offset = randomizeEnabled ? getRandomOffset(randomizeMinutes) : 0
+      const clockInValue = applyOffset(clockIn, offset)
+      const clockOutValue = applyOffset(clockOut, offset)
+      const clockInParts = parseTime(clockInValue)
+      const clockOutParts = parseTime(clockOutValue)
 
       commitInputValue(clockInInput.hours, clockInParts.hours)
       commitInputValue(clockInInput.minutes, clockInParts.minutes)
