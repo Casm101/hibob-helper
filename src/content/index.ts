@@ -47,6 +47,17 @@ const getStoredSettings = () =>
     )
   })
 
+const setStoredSettings = (settings: { randomizeEnabled: boolean; randomizeMinutes: number }) =>
+  new Promise<void>((resolve) => {
+    chrome.storage.sync.set(
+      {
+        hibobHelperRandomizeEnabled: settings.randomizeEnabled,
+        hibobHelperRandomizeMinutes: settings.randomizeMinutes,
+      },
+      () => resolve()
+    )
+  })
+
 const isValidTime = (value: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value)
 
 declare global {
@@ -156,6 +167,47 @@ if (!window.__hibobHelperInjected) {
           color: #f8fafc;
         }
       }
+      #hibob-helper-inline .hh-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      #hibob-helper-inline .hh-tooltip-wrap {
+        position: relative;
+        display: inline-flex;
+      }
+      #hibob-helper-inline .hh-tooltip {
+        position: absolute;
+        left: 50%;
+        bottom: calc(100% + 10px);
+        transform: translateX(-50%) translateY(6px);
+        opacity: 0;
+        pointer-events: none;
+        padding: 6px 10px;
+        border-radius: 10px;
+        background: #0f172a;
+        color: #fff;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.03em;
+        white-space: nowrap;
+        box-shadow: 0 10px 20px rgba(15, 23, 42, 0.25);
+        transition: opacity 0.2s ease, transform 0.2s ease;
+        z-index: 999999;
+      }
+      #hibob-helper-inline .hh-tooltip::after {
+        content: '';
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        border: 6px solid transparent;
+        border-top-color: #0f172a;
+      }
+      #hibob-helper-inline .hh-tooltip-visible .hh-tooltip {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+      }
       #hibob-helper-inline .hh-action {
         border: none;
         background: #0f172a;
@@ -172,6 +224,40 @@ if (!window.__hibobHelperInjected) {
         #hibob-helper-inline .hh-action { background: #f43f5e; color: #fff; }
       }
       #hibob-helper-inline .hh-action[disabled] { opacity: 0.6; cursor: not-allowed; transform: none; box-shadow: none; }
+      #hibob-helper-inline .hh-randomize-btn {
+        border: 1px solid rgba(148,163,184,0.4);
+        background: rgba(255,255,255,0.85);
+        color: #475569;
+        padding: 8px 12px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1.2;
+        cursor: pointer;
+        transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+      }
+      #hibob-helper-inline .hh-randomize-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 14px rgba(15,23,42,0.18);
+      }
+      #hibob-helper-inline .hh-randomize-btn[data-active='true'] {
+        border-color: #0f172a;
+        background: #0f172a;
+        color: #fff;
+      }
+      @media (prefers-color-scheme: dark) {
+        #hibob-helper-inline .hh-randomize-btn {
+          border-color: rgba(148,163,184,0.25);
+          background: rgba(15,23,42,0.6);
+          color: #e2e8f0;
+        }
+        #hibob-helper-inline .hh-randomize-btn[data-active='true'] {
+          border-color: #f43f5e;
+          background: #f43f5e;
+          color: #fff;
+        }
+      }
+      #hibob-helper-inline[data-state='running'] .hh-actions { display: none; }
       #hibob-helper-inline .hh-progress { display: none; flex-direction: column; gap: 6px; min-width: 160px; }
       #hibob-helper-inline .hh-progress-header { display: flex; justify-content: space-between; font-size: 10px; text-transform: uppercase; letter-spacing: 0.2em; color: #64748b; font-weight: 600; }
       #hibob-helper-inline .hh-progress-bar { width: 100%; height: 6px; border-radius: 999px; background: rgba(148,163,184,0.3); overflow: hidden; }
@@ -193,7 +279,14 @@ if (!window.__hibobHelperInjected) {
     container.dataset.state = 'idle'
     container.innerHTML = `
       <div class="hh-shell">
-        <button class="hh-action" type="button">Automate Entries</button>
+        <div class="hh-actions">
+          <div class="hh-tooltip-wrap" data-hh-tooltip="Run automation for missing entries.">
+            <button class="hh-action" type="button">Automate Entries</button>
+          </div>
+          <div class="hh-tooltip-wrap" data-hh-tooltip="Toggle random time offsets.">
+            <button class="hh-randomize-btn" type="button" aria-pressed="false" data-active="false">🎲</button>
+          </div>
+        </div>
         <div class="hh-progress">
           <div class="hh-progress-header">
             <span>Progress</span>
@@ -208,10 +301,14 @@ if (!window.__hibobHelperInjected) {
     document.body.appendChild(container)
 
     const actionButton = container.querySelector<HTMLButtonElement>('.hh-action')
+    const randomizeButton = container.querySelector<HTMLButtonElement>('.hh-randomize-btn')
     const cancelButton = container.querySelector<HTMLButtonElement>('.hh-cancel')
     const progressCount = container.querySelector<HTMLElement>('.hh-progress-count')
     const progressBar = container.querySelector<HTMLElement>('.hh-progress-bar span')
     const progressFooter = container.querySelector<HTMLElement>('.hh-progress-footer')
+    const tooltipWrappers = Array.from(
+      container.querySelectorAll<HTMLElement>('.hh-tooltip-wrap')
+    )
 
     const updateProgress = (progress: {
       total: number
@@ -270,6 +367,58 @@ if (!window.__hibobHelperInjected) {
 
     actionButton?.addEventListener('click', startInlineAutomation)
     cancelButton?.addEventListener('click', () => requestCancel())
+
+    const attachTooltip = (wrapper: HTMLElement) => {
+      const tooltipText = wrapper.dataset.hhTooltip?.trim()
+      if (!tooltipText) return
+      const tooltip = document.createElement('div')
+      tooltip.className = 'hh-tooltip'
+      tooltip.textContent = tooltipText
+      tooltip.setAttribute('role', 'tooltip')
+      wrapper.appendChild(tooltip)
+
+      let timer: number | null = null
+      const show = () => {
+        if (timer) window.clearTimeout(timer)
+        timer = window.setTimeout(() => wrapper.classList.add('hh-tooltip-visible'), 350)
+      }
+      const hide = () => {
+        if (timer) window.clearTimeout(timer)
+        timer = null
+        wrapper.classList.remove('hh-tooltip-visible')
+      }
+
+      const target = wrapper.querySelector<HTMLElement>('button')
+      target?.addEventListener('mouseenter', show)
+      target?.addEventListener('focus', show)
+      target?.addEventListener('mouseleave', hide)
+      target?.addEventListener('blur', hide)
+      target?.addEventListener('click', hide)
+    }
+
+    tooltipWrappers.forEach(attachTooltip)
+
+    const applyRandomizeState = async () => {
+      const settings = await getStoredSettings()
+      if (!randomizeButton) return
+      randomizeButton.dataset.active = settings.randomizeEnabled ? 'true' : 'false'
+      randomizeButton.setAttribute('aria-pressed', settings.randomizeEnabled ? 'true' : 'false')
+    }
+
+    randomizeButton?.addEventListener('click', async () => {
+      const current = await getStoredSettings()
+      const enabled = !current.randomizeEnabled
+      await setStoredSettings({
+        randomizeEnabled: enabled,
+        randomizeMinutes: current.randomizeMinutes || 15,
+      })
+      if (randomizeButton) {
+        randomizeButton.dataset.active = enabled ? 'true' : 'false'
+        randomizeButton.setAttribute('aria-pressed', enabled ? 'true' : 'false')
+      }
+    })
+
+    applyRandomizeState()
   }
 
   buildInlineUi()
