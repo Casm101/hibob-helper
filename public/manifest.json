@@ -3,9 +3,25 @@
     "name": "HiBob Attendance Helper",
     "version": "1.0.0",
     "description": "Automates missing attendance entries on HiBob.",
+    "icons": {
+        "16": "icons/icon-16.png",
+        "32": "icons/icon-32.png",
+        "48": "icons/icon-48.png",
+        "128": "icons/icon-128.png",
+        "256": "icons/icon-256.png",
+        "512": "icons/icon-512.png"
+    },
     "action": {
         "default_popup": "popup/index.html",
-        "default_title": "HiBob Helper"
+        "default_title": "HiBob Attendance Helper",
+        "default_icon": {
+            "16": "icons/icon-16.png",
+            "32": "icons/icon-32.png",
+            "48": "icons/icon-48.png",
+            "128": "icons/icon-128.png",
+            "256": "icons/icon-256.png",
+            "512": "icons/icon-512.png"
+        }
     },
     "permissions": ["activeTab", "scripting", "storage"],
     "host_permissions": ["https://app.hibob.com/attendance/my-attendance"],
