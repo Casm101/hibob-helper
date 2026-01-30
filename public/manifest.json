@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "HiBob Attendance Helper",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "Automates missing attendance entries on HiBob.",
     "icons": {
         "16": "icons/icon-16.png",
