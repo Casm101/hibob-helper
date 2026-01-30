@@ -27,32 +27,65 @@ const getStoredTimes = () =>
   })
 
 const getStoredSettings = () =>
-  new Promise<{ randomizeEnabled: boolean; randomizeMinutes: number }>((resolve) => {
+  new Promise<{
+    randomizeEnabled: boolean
+    randomizeMinutes: number
+    breakEnabled: boolean
+    breakStart: string
+    breakDurationMinutes: number
+  }>((resolve) => {
     chrome.storage.sync.get(
       {
         hibobHelperRandomizeEnabled: false,
         hibobHelperRandomizeMinutes: 15,
+        hibobHelperBreakEnabled: false,
+        hibobHelperBreakStart: '12:00',
+        hibobHelperBreakDurationMinutes: 30,
       },
       (result) => {
         const values = result as Record<string, unknown>
         const enabled = values.hibobHelperRandomizeEnabled
         const minutes = values.hibobHelperRandomizeMinutes
+        const breakEnabled = values.hibobHelperBreakEnabled
+        const breakStart = values.hibobHelperBreakStart
+        const breakDuration = values.hibobHelperBreakDurationMinutes
         const parsedMinutes =
           typeof minutes === 'number' ? minutes : Number.parseInt(String(minutes ?? ''), 10)
+        const parsedBreakDuration =
+          typeof breakDuration === 'number'
+            ? breakDuration
+            : Number.parseInt(String(breakDuration ?? ''), 10)
+        const resolvedBreakStart =
+          typeof breakStart === 'string' && breakStart.trim() ? breakStart : '12:00'
         resolve({
           randomizeEnabled: typeof enabled === 'boolean' ? enabled : Boolean(enabled ?? false),
           randomizeMinutes: Number.isFinite(parsedMinutes) ? parsedMinutes : 15,
+          breakEnabled:
+            typeof breakEnabled === 'boolean' ? breakEnabled : Boolean(breakEnabled ?? false),
+          breakStart: resolvedBreakStart,
+          breakDurationMinutes: Number.isFinite(parsedBreakDuration)
+            ? parsedBreakDuration
+            : 30,
         })
       }
     )
   })
 
-const setStoredSettings = (settings: { randomizeEnabled: boolean; randomizeMinutes: number }) =>
+const setStoredSettings = (settings: {
+  randomizeEnabled: boolean
+  randomizeMinutes: number
+  breakEnabled: boolean
+  breakStart: string
+  breakDurationMinutes: number
+}) =>
   new Promise<void>((resolve) => {
     chrome.storage.sync.set(
       {
         hibobHelperRandomizeEnabled: settings.randomizeEnabled,
         hibobHelperRandomizeMinutes: settings.randomizeMinutes,
+        hibobHelperBreakEnabled: settings.breakEnabled,
+        hibobHelperBreakStart: settings.breakStart,
+        hibobHelperBreakDurationMinutes: settings.breakDurationMinutes,
       },
       () => resolve()
     )
@@ -74,7 +107,13 @@ if (!window.__hibobHelperInjected) {
     clockOut: string,
     requestId: string,
     onProgress?: (progress: { total: number; completed: number; saved: number }) => void,
-    options?: { randomizeEnabled?: boolean; randomizeMinutes?: number }
+    options?: {
+      randomizeEnabled?: boolean
+      randomizeMinutes?: number
+      breakEnabled?: boolean
+      breakStart?: string
+      breakDurationMinutes?: number
+    }
   ) => {
     if (running) {
       return {
@@ -224,7 +263,8 @@ if (!window.__hibobHelperInjected) {
         #hibob-helper-inline .hh-action { background: #f43f5e; color: #fff; }
       }
       #hibob-helper-inline .hh-action[disabled] { opacity: 0.6; cursor: not-allowed; transform: none; box-shadow: none; }
-      #hibob-helper-inline .hh-randomize-btn {
+      #hibob-helper-inline .hh-randomize-btn,
+      #hibob-helper-inline .hh-break-btn {
         border: 1px solid rgba(148,163,184,0.4);
         background: rgba(255,255,255,0.85);
         color: #475569;
@@ -236,22 +276,26 @@ if (!window.__hibobHelperInjected) {
         cursor: pointer;
         transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease, background 0.15s ease;
       }
-      #hibob-helper-inline .hh-randomize-btn:hover {
+      #hibob-helper-inline .hh-randomize-btn:hover,
+      #hibob-helper-inline .hh-break-btn:hover {
         transform: translateY(-1px);
         box-shadow: 0 6px 14px rgba(15,23,42,0.18);
       }
-      #hibob-helper-inline .hh-randomize-btn[data-active='true'] {
+      #hibob-helper-inline .hh-randomize-btn[data-active='true'],
+      #hibob-helper-inline .hh-break-btn[data-active='true'] {
         border-color: #0f172a;
         background: #0f172a;
         color: #fff;
       }
       @media (prefers-color-scheme: dark) {
-        #hibob-helper-inline .hh-randomize-btn {
+        #hibob-helper-inline .hh-randomize-btn,
+        #hibob-helper-inline .hh-break-btn {
           border-color: rgba(148,163,184,0.25);
           background: rgba(15,23,42,0.6);
           color: #e2e8f0;
         }
-        #hibob-helper-inline .hh-randomize-btn[data-active='true'] {
+        #hibob-helper-inline .hh-randomize-btn[data-active='true'],
+        #hibob-helper-inline .hh-break-btn[data-active='true'] {
           border-color: #f43f5e;
           background: #f43f5e;
           color: #fff;
@@ -286,6 +330,9 @@ if (!window.__hibobHelperInjected) {
           <div class="hh-tooltip-wrap" data-hh-tooltip="Toggle random time offsets.">
             <button class="hh-randomize-btn" type="button" aria-pressed="false" data-active="false">🎲</button>
           </div>
+          <div class="hh-tooltip-wrap" data-hh-tooltip="Toggle a scheduled break.">
+            <button class="hh-break-btn" type="button" aria-pressed="false" data-active="false">☕</button>
+          </div>
         </div>
         <div class="hh-progress">
           <div class="hh-progress-header">
@@ -302,6 +349,7 @@ if (!window.__hibobHelperInjected) {
 
     const actionButton = container.querySelector<HTMLButtonElement>('.hh-action')
     const randomizeButton = container.querySelector<HTMLButtonElement>('.hh-randomize-btn')
+    const breakButton = container.querySelector<HTMLButtonElement>('.hh-break-btn')
     const cancelButton = container.querySelector<HTMLButtonElement>('.hh-cancel')
     const progressCount = container.querySelector<HTMLElement>('.hh-progress-count')
     const progressBar = container.querySelector<HTMLElement>('.hh-progress-bar span')
@@ -411,6 +459,9 @@ if (!window.__hibobHelperInjected) {
       await setStoredSettings({
         randomizeEnabled: enabled,
         randomizeMinutes: current.randomizeMinutes || 15,
+        breakEnabled: current.breakEnabled,
+        breakStart: current.breakStart,
+        breakDurationMinutes: current.breakDurationMinutes,
       })
       if (randomizeButton) {
         randomizeButton.dataset.active = enabled ? 'true' : 'false'
@@ -418,7 +469,46 @@ if (!window.__hibobHelperInjected) {
       }
     })
 
+    const applyBreakState = async () => {
+      const settings = await getStoredSettings()
+      if (!breakButton) return
+      breakButton.dataset.active = settings.breakEnabled ? 'true' : 'false'
+      breakButton.setAttribute('aria-pressed', settings.breakEnabled ? 'true' : 'false')
+    }
+
+    breakButton?.addEventListener('click', async () => {
+      const current = await getStoredSettings()
+      const enabled = !current.breakEnabled
+      await setStoredSettings({
+        randomizeEnabled: current.randomizeEnabled,
+        randomizeMinutes: current.randomizeMinutes || 15,
+        breakEnabled: enabled,
+        breakStart: current.breakStart,
+        breakDurationMinutes: current.breakDurationMinutes,
+      })
+      if (breakButton) {
+        breakButton.dataset.active = enabled ? 'true' : 'false'
+        breakButton.setAttribute('aria-pressed', enabled ? 'true' : 'false')
+      }
+    })
+
     applyRandomizeState()
+    applyBreakState()
+
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== 'sync') return
+      const keys = Object.keys(changes)
+      if (
+        keys.includes('hibobHelperRandomizeEnabled') ||
+        keys.includes('hibobHelperRandomizeMinutes') ||
+        keys.includes('hibobHelperBreakEnabled') ||
+        keys.includes('hibobHelperBreakStart') ||
+        keys.includes('hibobHelperBreakDurationMinutes')
+      ) {
+        applyRandomizeState()
+        applyBreakState()
+      }
+    })
   }
 
   buildInlineUi()
@@ -464,6 +554,9 @@ if (!window.__hibobHelperInjected) {
         {
           randomizeEnabled: message.payload.randomizeEnabled,
           randomizeMinutes: message.payload.randomizeMinutes,
+          breakEnabled: message.payload.breakEnabled,
+          breakStart: message.payload.breakStart,
+          breakDurationMinutes: message.payload.breakDurationMinutes,
         }
       ).then(({ response }) => {
         sendResponse(response)

@@ -148,17 +148,6 @@ const waitForSidebar = async (
   )
 }
 
-const waitForEntryForm = async (sidebar: HTMLElement, shouldCancel: () => boolean) =>
-  waitForCondition(
-    () => {
-      const clockIn = findTimePickerInputs(sidebar, 'Clock in')
-      const clockOut = findTimePickerInputs(sidebar, 'Clock out')
-      if (clockIn && clockOut) return { clockIn, clockOut }
-      return null
-    },
-    { root: sidebar, shouldCancel }
-  )
-
 const findAddEntryButton = (sidebar: HTMLElement) => {
   return (
     sidebar.querySelector<HTMLElement>('#empty-state-action-btn') ??
@@ -166,6 +155,14 @@ const findAddEntryButton = (sidebar: HTMLElement) => {
     sidebar.querySelector<HTMLElement>('.add-entry-btn-side-panel button') ??
     sidebar.querySelector<HTMLElement>('[data-icon-before="time-add"]') ??
     findButtonByText(sidebar, ['add entry', 'add'])
+  )
+}
+
+const findSidePanelAddEntryButton = (sidebar: HTMLElement) => {
+  return (
+    sidebar.querySelector<HTMLElement>('.add-entry-btn-side-panel button') ??
+    sidebar.querySelector<HTMLElement>('[data-icon-before="time-add"]') ??
+    findButtonByText(sidebar, ['add entry'])
   )
 }
 
@@ -212,6 +209,19 @@ const findTimePickerInputs = (container: ParentNode, labelText: string) => {
   return null
 }
 
+const getEntryBlocks = (container: ParentNode) => {
+  const entries = Array.from(container.querySelectorAll<HTMLElement>('app-attendance-entry'))
+  if (entries.length) return entries
+  return Array.from(container.querySelectorAll<HTMLElement>('.entry-panel'))
+}
+
+const getEntryInputs = (entry: ParentNode) => {
+  const clockIn = findTimePickerInputs(entry, 'Clock in')
+  const clockOut = findTimePickerInputs(entry, 'Clock out')
+  if (!clockIn || !clockOut) return null
+  return { clockIn, clockOut }
+}
+
 const parseTime = (value: string) => {
   const [hours = '00', minutes = '00'] = value.split(':')
   return {
@@ -249,6 +259,11 @@ const applyOffset = (timeValue: string, offsetMinutes: number) => {
   if (!offsetMinutes) return timeValue
   const base = toMinutes(timeValue)
   return fromMinutes(base + offsetMinutes)
+}
+
+const addMinutes = (timeValue: string, minutes: number) => {
+  if (!Number.isFinite(minutes) || minutes === 0) return timeValue
+  return fromMinutes(toMinutes(timeValue) + minutes)
 }
 
 const hasMissingTimeErrors = (root: ParentNode) => {
@@ -290,10 +305,19 @@ export const runAutomation = async (
   requestId: string,
   shouldCancel: () => boolean,
   onProgress?: (progress: { total: number; completed: number; saved: number }) => void,
-  options?: { randomizeEnabled?: boolean; randomizeMinutes?: number }
+  options?: {
+    randomizeEnabled?: boolean
+    randomizeMinutes?: number
+    breakEnabled?: boolean
+    breakStart?: string
+    breakDurationMinutes?: number
+  }
 ) => {
   const randomizeEnabled = options?.randomizeEnabled ?? false
   const randomizeMinutes = options?.randomizeMinutes ?? 0
+  const breakEnabled = options?.breakEnabled ?? false
+  const breakStart = options?.breakStart ?? '12:00'
+  const breakDurationMinutes = Math.max(0, options?.breakDurationMinutes ?? 0)
   const sendProgress = (completed: number, total: number, saved: number) => {
     chrome.runtime.sendMessage({
       type: 'AUTOMATION_PROGRESS',
@@ -363,22 +387,33 @@ export const runAutomation = async (
           '#attendance-right-panel, [role="complementary"], sidebar'
         ) ?? sidebar
 
-      let clockInInput = findTimePickerInputs(sidebarRoot, 'Clock in')
-      let clockOutInput = findTimePickerInputs(sidebarRoot, 'Clock out')
+      const ensureEntries = async (count: number) =>
+        waitForCondition(() => {
+          const entries = getEntryBlocks(sidebarRoot)
+          return entries.length >= count ? entries : null
+        }, { root: sidebarRoot, shouldCancel })
 
-      if (!clockInInput || !clockOutInput) {
+      let entries = getEntryBlocks(sidebarRoot)
+      if (entries.length === 0) {
         const addEntryButton = await waitForCondition(
           () => findAddEntryButton(sidebarRoot),
           { root: sidebarRoot, timeout: 15000, shouldCancel }
         )
         clickElement(addEntryButton)
-
-        const formInputs = await waitForEntryForm(sidebarRoot, shouldCancel)
-        clockInInput = formInputs.clockIn
-        clockOutInput = formInputs.clockOut
+        entries = await ensureEntries(1)
       }
 
-      if (!clockInInput || !clockOutInput) {
+      const firstEntry = entries[0]
+      let firstInputs = getEntryInputs(firstEntry)
+      if (!firstInputs) {
+        const entryInputs = await waitForCondition(
+          () => getEntryInputs(firstEntry),
+          { root: firstEntry, timeout: 8000, shouldCancel }
+        )
+        firstInputs = entryInputs
+      }
+
+      if (!firstInputs) {
         console.warn(`${LOG_PREFIX} Time inputs not found for ${rowLabel}.`)
         continue
       }
@@ -386,13 +421,46 @@ export const runAutomation = async (
       const offset = randomizeEnabled ? getRandomOffset(randomizeMinutes) : 0
       const clockInValue = applyOffset(clockIn, offset)
       const clockOutValue = applyOffset(clockOut, offset)
-      const clockInParts = parseTime(clockInValue)
-      const clockOutParts = parseTime(clockOutValue)
 
-      commitInputValue(clockInInput.hours, clockInParts.hours)
-      commitInputValue(clockInInput.minutes, clockInParts.minutes)
-      commitInputValue(clockOutInput.hours, clockOutParts.hours)
-      commitInputValue(clockOutInput.minutes, clockOutParts.minutes)
+      if (breakEnabled) {
+        const breakStartValue = breakStart
+        const breakEndValue = addMinutes(breakStartValue, breakDurationMinutes)
+        const finalClockOutValue = addMinutes(clockOutValue, breakDurationMinutes)
+
+        const firstInParts = parseTime(clockInValue)
+        const firstOutParts = parseTime(breakStartValue)
+        commitInputValue(firstInputs.clockIn.hours, firstInParts.hours)
+        commitInputValue(firstInputs.clockIn.minutes, firstInParts.minutes)
+        commitInputValue(firstInputs.clockOut.hours, firstOutParts.hours)
+        commitInputValue(firstInputs.clockOut.minutes, firstOutParts.minutes)
+
+        const sidePanelAddButton = await waitForCondition(
+          () => findSidePanelAddEntryButton(sidebarRoot),
+          { root: sidebarRoot, timeout: 8000, shouldCancel }
+        )
+        clickElement(sidePanelAddButton)
+
+        const updatedEntries = await ensureEntries(2)
+        const secondEntry = updatedEntries[1]
+        const secondInputs = await waitForCondition(
+          () => getEntryInputs(secondEntry),
+          { root: secondEntry, timeout: 8000, shouldCancel }
+        )
+
+        const secondInParts = parseTime(breakEndValue)
+        const secondOutParts = parseTime(finalClockOutValue)
+        commitInputValue(secondInputs.clockIn.hours, secondInParts.hours)
+        commitInputValue(secondInputs.clockIn.minutes, secondInParts.minutes)
+        commitInputValue(secondInputs.clockOut.hours, secondOutParts.hours)
+        commitInputValue(secondInputs.clockOut.minutes, secondOutParts.minutes)
+      } else {
+        const clockInParts = parseTime(clockInValue)
+        const clockOutParts = parseTime(clockOutValue)
+        commitInputValue(firstInputs.clockIn.hours, clockInParts.hours)
+        commitInputValue(firstInputs.clockIn.minutes, clockInParts.minutes)
+        commitInputValue(firstInputs.clockOut.hours, clockOutParts.hours)
+        commitInputValue(firstInputs.clockOut.minutes, clockOutParts.minutes)
+      }
 
       await waitForCondition(() => !hasMissingTimeErrors(sidebarRoot), {
         root: sidebarRoot,

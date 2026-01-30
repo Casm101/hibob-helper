@@ -75,13 +75,20 @@ export const App = () => {
     const [clockOut, setClockOut] = useState("17:00");
     const [supported, setSupported] = useState(false);
     const [status, setStatus] = useState<StatusState>(initialStatus);
-    const [progress, setProgress] = useState({ total: 0, completed: 0, saved: 0 });
+    const [progress, setProgress] = useState({
+        total: 0,
+        completed: 0,
+        saved: 0,
+    });
     const activeRequestId = useRef<string | null>(null);
     const hasLoadedTimes = useRef(false);
     const hasLoadedSettings = useRef(false);
     const [view, setView] = useState<ViewState>("main");
     const [randomizeEnabled, setRandomizeEnabled] = useState(false);
     const [randomizeMinutes, setRandomizeMinutes] = useState(15);
+    const [breakEnabled, setBreakEnabled] = useState(false);
+    const [breakStart, setBreakStart] = useState("12:00");
+    const [breakDuration, setBreakDuration] = useState(30);
 
     useEffect(() => {
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -102,6 +109,9 @@ export const App = () => {
         getStoredSettings().then((settings) => {
             setRandomizeEnabled(settings.randomizeEnabled);
             setRandomizeMinutes(settings.randomizeMinutes);
+            setBreakEnabled(settings.breakEnabled);
+            setBreakStart(settings.breakStart);
+            setBreakDuration(settings.breakDurationMinutes);
             hasLoadedSettings.current = true;
         });
     }, []);
@@ -118,8 +128,19 @@ export const App = () => {
             randomizeMinutes: Number.isFinite(randomizeMinutes)
                 ? randomizeMinutes
                 : 15,
+            breakEnabled,
+            breakStart,
+            breakDurationMinutes: Number.isFinite(breakDuration)
+                ? breakDuration
+                : 30,
         });
-    }, [randomizeEnabled, randomizeMinutes]);
+    }, [
+        randomizeEnabled,
+        randomizeMinutes,
+        breakEnabled,
+        breakStart,
+        breakDuration,
+    ]);
 
     useEffect(() => {
         const handler = (message: AutomationProgressMessage) => {
@@ -162,6 +183,9 @@ export const App = () => {
                 clockOut,
                 randomizeEnabled,
                 randomizeMinutes,
+                breakEnabled,
+                breakStart,
+                breakDurationMinutes: breakDuration,
             },
         });
 
@@ -218,7 +242,7 @@ export const App = () => {
         progress.total > 0
             ? Math.min(
                   100,
-                  Math.round((progress.completed / progress.total) * 100)
+                  Math.round((progress.completed / progress.total) * 100),
               )
             : 0;
 
@@ -236,7 +260,8 @@ export const App = () => {
                                     Attendance Auto-Fill
                                 </h1>
                                 <p className="text-xs text-slate-500 dark:text-slate-300">
-                                    Apply your default time entry to flagged rows.
+                                    Apply your default time entry to flagged
+                                    rows.
                                 </p>
                             </div>
                             <button
@@ -315,8 +340,8 @@ export const App = () => {
 
                         {!supported ? (
                             <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700 dark:border-rose-400/40 dark:bg-rose-500/10 dark:text-rose-200">
-                                Site not supported. Open {TARGET_URL_HINT} and try
-                                again.
+                                Site not supported. Open {TARGET_URL_HINT} and
+                                try again.
                             </div>
                         ) : null}
 
@@ -353,7 +378,8 @@ export const App = () => {
                                 <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
                                     <span>Progress</span>
                                     <span>
-                                        {progress.completed}/{progress.total || "—"}
+                                        {progress.completed}/
+                                        {progress.total || "—"}
                                     </span>
                                 </div>
                                 <div className="h-2 w-full rounded-full bg-slate-200/80 dark:bg-slate-800/80">
@@ -363,7 +389,8 @@ export const App = () => {
                                     />
                                 </div>
                                 <p className="text-xs text-slate-500 dark:text-slate-300">
-                                    Saved {progress.saved} of {progress.total || "0"} row
+                                    Saved {progress.saved} of{" "}
+                                    {progress.total || "0"} row
                                     {progress.total === 1 ? "" : "s"}.
                                 </p>
                             </div>
@@ -395,7 +422,9 @@ export const App = () => {
                                         className="peer sr-only"
                                         checked={randomizeEnabled}
                                         onChange={(event) =>
-                                            setRandomizeEnabled(event.target.checked)
+                                            setRandomizeEnabled(
+                                                event.target.checked,
+                                            )
                                         }
                                     />
                                     <span className="h-6 w-11 rounded-full bg-slate-200 transition peer-checked:bg-rose-500 dark:bg-slate-700 dark:peer-checked:bg-rose-400" />
@@ -419,10 +448,12 @@ export const App = () => {
                                         onChange={(event) => {
                                             const parsed = Number.parseInt(
                                                 event.target.value,
-                                                10
+                                                10,
                                             );
                                             setRandomizeMinutes(
-                                                Number.isFinite(parsed) ? parsed : 0
+                                                Number.isFinite(parsed)
+                                                    ? parsed
+                                                    : 0,
                                             );
                                         }}
                                         disabled={!randomizeEnabled}
@@ -432,6 +463,70 @@ export const App = () => {
                                         minutes
                                     </span>
                                 </div>
+                            </div>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200/70 bg-white/60 p-4 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5">
+                            <div className="flex items-start justify-between gap-4">
+                                <div className="space-y-1">
+                                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                        Enable break time
+                                    </p>
+                                    <p className="text-xs text-slate-500 dark:text-slate-300">
+                                        Schedule a break within the shift.
+                                    </p>
+                                </div>
+                                <label className="relative inline-flex cursor-pointer items-center">
+                                    <input
+                                        type="checkbox"
+                                        className="peer sr-only"
+                                        checked={breakEnabled}
+                                        onChange={(event) =>
+                                            setBreakEnabled(
+                                                event.target.checked,
+                                            )
+                                        }
+                                    />
+                                    <span className="h-6 w-11 rounded-full bg-slate-200 transition peer-checked:bg-rose-500 dark:bg-slate-700 dark:peer-checked:bg-rose-400" />
+                                    <span className="absolute left-1 top-1 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-5 dark:bg-slate-100" />
+                                </label>
+                            </div>
+                            <div className="mt-4 grid grid-cols-2 gap-3">
+                                <TimeField
+                                    id="break-start"
+                                    label="Break start"
+                                    value={breakStart}
+                                    onChange={setBreakStart}
+                                    hasError={
+                                        breakEnabled && !isValidTime(breakStart)
+                                    }
+                                    disabled={!breakEnabled}
+                                />
+                                <label className="block space-y-1 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-300">
+                                    <span>Break duration</span>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        step={1}
+                                        value={
+                                            Number.isFinite(breakDuration)
+                                                ? breakDuration
+                                                : 0
+                                        }
+                                        onChange={(event) => {
+                                            const parsed = Number.parseInt(
+                                                event.target.value,
+                                                10,
+                                            );
+                                            setBreakDuration(
+                                                Number.isFinite(parsed)
+                                                    ? parsed
+                                                    : 0,
+                                            );
+                                        }}
+                                        disabled={!breakEnabled}
+                                        className="w-full rounded-xl border border-slate-200/80 bg-white/80 px-3 py-2 text-sm text-slate-900 shadow-sm transition focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200 disabled:cursor-not-allowed disabled:border-slate-200/60 disabled:bg-slate-100/80 disabled:text-slate-400 dark:border-slate-700/80 dark:bg-slate-900/70 dark:text-slate-100 dark:focus:border-rose-300 dark:focus:ring-rose-400/40 dark:disabled:border-slate-700/40 dark:disabled:bg-slate-900/40 dark:disabled:text-slate-500"
+                                    />
+                                </label>
                             </div>
                         </div>
                     </div>

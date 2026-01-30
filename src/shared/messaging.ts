@@ -3,6 +3,9 @@ export type AutomationPayload = {
   clockOut: string
   randomizeEnabled?: boolean
   randomizeMinutes?: number
+  breakEnabled?: boolean
+  breakStart?: string
+  breakDurationMinutes?: number
 }
 
 export type RunAutomationMessage = {
