@@ -1,23 +1,23 @@
 {
-  "manifest_version": 3,
-  "name": "HiBob Attendance Helper",
-  "version": "1.0.0",
-  "description": "Automates missing attendance entries on HiBob.",
-  "action": {
-    "default_popup": "popup/index.html",
-    "default_title": "HiBob Helper"
-  },
-  "permissions": ["activeTab", "scripting", "storage"],
-  "host_permissions": ["https://app.hibob.com/*"],
-  "background": {
-    "service_worker": "background.js",
-    "type": "module"
-  },
-  "content_scripts": [
-    {
-      "matches": ["https://app.hibob.com/*"],
-      "js": ["contentScript.js"],
-      "run_at": "document_idle"
-    }
-  ]
+    "manifest_version": 3,
+    "name": "HiBob Attendance Helper",
+    "version": "1.0.0",
+    "description": "Automates missing attendance entries on HiBob.",
+    "action": {
+        "default_popup": "popup/index.html",
+        "default_title": "HiBob Helper"
+    },
+    "permissions": ["activeTab", "scripting", "storage"],
+    "host_permissions": ["https://app.hibob.com/attendance/my-attendance"],
+    "background": {
+        "service_worker": "background.js",
+        "type": "module"
+    },
+    "content_scripts": [
+        {
+            "matches": ["https://app.hibob.com/attendance/my-attendance"],
+            "js": ["contentScript.js"],
+            "run_at": "document_idle"
+        }
+    ]
 }

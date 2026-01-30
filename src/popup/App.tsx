@@ -250,41 +250,38 @@ export const App = () => {
         <div className="flex min-h-[360px] w-[360px] flex-col bg-gradient-to-br from-rose-50 via-slate-50 to-amber-50 p-4 text-slate-900 dark:from-[#0f0f12] dark:via-[#1a1a20] dark:to-[#24151c] dark:text-slate-100">
             <div className="flex-1 rounded-2xl border border-white/70 bg-white/80 p-4 shadow-panel backdrop-blur dark:border-white/10 dark:bg-[#1a1a22]/80">
                 {view === "main" ? (
-                    <>
-                        <header className="relative flex items-start gap-3">
-                            <div className="space-y-1 animate-fade-up pr-10">
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-rose-500">
-                                    HiBob Helper
-                                </p>
-                                <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-                                    Attendance Auto-Fill
-                                </h1>
-                                <p className="text-xs text-slate-500 dark:text-slate-300">
-                                    Apply your default time entry to flagged
-                                    rows.
-                                </p>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => setView("settings")}
-                                className="absolute right-0 top-0 rounded-full border border-slate-200 bg-white/70 p-2 text-slate-500 shadow-sm transition hover:text-slate-700 dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-300 dark:hover:text-slate-100"
-                                aria-label="Open settings"
+                    <header className="relative flex items-start gap-3">
+                        <div className="space-y-1 animate-fade-up pr-10">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-rose-500">
+                                HiBob Helper
+                            </p>
+                            <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                                Attendance Auto-Fill
+                            </h1>
+                            <p className="text-xs text-slate-500 dark:text-slate-300">
+                                Apply your default time entry to flagged rows.
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setView("settings")}
+                            className="absolute right-0 top-0 rounded-full border border-slate-200 bg-white/70 p-2 text-slate-500 shadow-sm transition hover:text-slate-700 dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-300 dark:hover:text-slate-100"
+                            aria-label="Open settings"
+                        >
+                            <svg
+                                viewBox="0 0 24 24"
+                                className="h-4 w-4"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.6"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
                             >
-                                <svg
-                                    viewBox="0 0 24 24"
-                                    className="h-4 w-4"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="1.6"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                >
-                                    <path d="M12 8.5a3.5 3.5 0 1 0 3.5 3.5A3.5 3.5 0 0 0 12 8.5Z" />
-                                    <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.05.05a2 2 0 1 1-2.83 2.83l-.05-.05a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.54V21a2 2 0 0 1-4 0v-.07a1.7 1.7 0 0 0-1-1.54 1.7 1.7 0 0 0-1.87.34l-.05.05a2 2 0 1 1-2.83-2.83l.05-.05A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.54-1H3a2 2 0 0 1 0-4h.06a1.7 1.7 0 0 0 1.54-1 1.7 1.7 0 0 0-.34-1.87l-.05-.05a2 2 0 1 1 2.83-2.83l.05.05A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.54V3a2 2 0 0 1 4 0v.06a1.7 1.7 0 0 0 1 1.54 1.7 1.7 0 0 0 1.87-.34l.05-.05a2 2 0 1 1 2.83 2.83l-.05.05A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.54 1H21a2 2 0 0 1 0 4h-.06a1.7 1.7 0 0 0-1.54 1Z" />
-                                </svg>
-                            </button>
-                        </header>
-                    </>
+                                <path d="M12 8.5a3.5 3.5 0 1 0 3.5 3.5A3.5 3.5 0 0 0 12 8.5Z" />
+                                <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.05.05a2 2 0 1 1-2.83 2.83l-.05-.05a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.54V21a2 2 0 0 1-4 0v-.07a1.7 1.7 0 0 0-1-1.54 1.7 1.7 0 0 0-1.87.34l-.05.05a2 2 0 1 1-2.83-2.83l.05-.05A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.54-1H3a2 2 0 0 1 0-4h.06a1.7 1.7 0 0 0 1.54-1 1.7 1.7 0 0 0-.34-1.87l-.05-.05a2 2 0 1 1 2.83-2.83l.05.05A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.54V3a2 2 0 0 1 4 0v.06a1.7 1.7 0 0 0 1 1.54 1.7 1.7 0 0 0 1.87-.34l.05-.05a2 2 0 1 1 2.83 2.83l-.05.05A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.54 1H21a2 2 0 0 1 0 4h-.06a1.7 1.7 0 0 0-1.54 1Z" />
+                            </svg>
+                        </button>
+                    </header>
                 ) : (
                     <header className="relative flex items-start gap-3">
                         <div className="space-y-1 animate-fade-up pr-10">

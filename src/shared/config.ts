@@ -1,4 +1,4 @@
-export const TARGET_URL = "https://app.hibob.com/";
+export const TARGET_URL = "https://app.hibob.com/attendance/my-attendance";
 
 export const TARGET_URL_HINT = new URL(TARGET_URL).host;
 
