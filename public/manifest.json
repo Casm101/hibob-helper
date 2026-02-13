@@ -24,14 +24,14 @@
         }
     },
     "permissions": ["activeTab", "scripting", "storage"],
-    "host_permissions": ["https://app.hibob.com/attendance/my-attendance"],
+    "host_permissions": ["https://app.hibob.com/*"],
     "background": {
         "service_worker": "background.js",
         "type": "module"
     },
     "content_scripts": [
         {
-            "matches": ["https://app.hibob.com/attendance/my-attendance"],
+            "matches": ["https://app.hibob.com/*"],
             "js": ["contentScript.js"],
             "run_at": "document_idle"
         }

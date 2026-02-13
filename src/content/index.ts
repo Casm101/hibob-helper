@@ -8,6 +8,13 @@ import type {
 const LOG_PREFIX = '[HiBob Helper]'
 let running = false
 let cancelRequested = false
+let inlineContainer: HTMLElement | null = null
+
+const TARGET_URL = 'https://app.hibob.com/attendance/my-attendance'
+const isSupportedUrl = (url?: string | null): boolean => {
+  if (!url) return false
+  return url.startsWith(TARGET_URL)
+}
 
 const getStoredTimes = () =>
   new Promise<{ clockIn: string; clockOut: string }>((resolve) => {
@@ -169,7 +176,11 @@ if (!window.__hibobHelperInjected) {
   }
 
   const buildInlineUi = () => {
-    if (document.getElementById('hibob-helper-inline')) return
+    const existing = document.getElementById('hibob-helper-inline') as HTMLElement | null
+    if (existing) {
+      inlineContainer = existing
+      return
+    }
 
     const style = document.createElement('style')
     style.textContent = `
@@ -346,6 +357,7 @@ if (!window.__hibobHelperInjected) {
       </div>
     `
     document.body.appendChild(container)
+    inlineContainer = container
 
     const actionButton = container.querySelector<HTMLButtonElement>('.hh-action')
     const randomizeButton = container.querySelector<HTMLButtonElement>('.hh-randomize-btn')
@@ -511,7 +523,30 @@ if (!window.__hibobHelperInjected) {
     })
   }
 
-  buildInlineUi()
+  const syncInlineVisibility = () => {
+    if (!inlineContainer) buildInlineUi()
+    if (!inlineContainer) return
+    inlineContainer.style.display = isSupportedUrl(window.location.href) ? 'block' : 'none'
+  }
+
+  const observeLocation = () => {
+    let lastUrl = window.location.href
+    const handleUrlChange = () => {
+      const currentUrl = window.location.href
+      if (currentUrl === lastUrl) return
+      lastUrl = currentUrl
+      syncInlineVisibility()
+    }
+
+    window.addEventListener('popstate', handleUrlChange)
+    window.addEventListener('hashchange', handleUrlChange)
+    // SPA routing in isolated worlds can bypass history hooks; poll URL as fallback.
+    window.setInterval(handleUrlChange, 500)
+
+    syncInlineVisibility()
+  }
+
+  observeLocation()
 
   chrome.runtime.onMessage.addListener(
     (
