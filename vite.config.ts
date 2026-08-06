@@ -12,12 +12,10 @@ export default defineConfig({
       input: {
         popup: resolve(__dirname, 'popup/index.html'),
         background: resolve(__dirname, 'src/background/index.ts'),
-        contentScript: resolve(__dirname, 'src/content/index.ts'),
       },
       output: {
         entryFileNames: (chunk) => {
           if (chunk.name === 'background') return 'background.js'
-          if (chunk.name === 'contentScript') return 'contentScript.js'
           return 'assets/[name]-[hash].js'
         },
       },
