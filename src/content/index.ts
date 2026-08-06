@@ -4,101 +4,14 @@ import type {
   CancelAutomationMessage,
   RunAutomationMessage,
 } from '../shared/messaging'
+import { isSupportedUrl } from '../shared/config'
+import { isValidTime } from '../shared/validation'
+import { getStoredTimes, getStoredSettings, setStoredSettings } from '../shared/storage'
 
 const LOG_PREFIX = '[HiBob Helper]'
 let running = false
 let cancelRequested = false
 let inlineContainer: HTMLElement | null = null
-
-const TARGET_URL = 'https://app.hibob.com/attendance/my-attendance'
-const isSupportedUrl = (url?: string | null): boolean => {
-  if (!url) return false
-  return url.startsWith(TARGET_URL)
-}
-
-const getStoredTimes = () =>
-  new Promise<{ clockIn: string; clockOut: string }>((resolve) => {
-    chrome.storage.sync.get(
-      {
-        hibobHelperClockIn: '09:00',
-        hibobHelperClockOut: '17:00',
-      },
-      (result) => {
-        const values = result as Record<string, unknown>
-        resolve({
-          clockIn: (values.hibobHelperClockIn as string) ?? '09:00',
-          clockOut: (values.hibobHelperClockOut as string) ?? '17:00',
-        })
-      }
-    )
-  })
-
-const getStoredSettings = () =>
-  new Promise<{
-    randomizeEnabled: boolean
-    randomizeMinutes: number
-    breakEnabled: boolean
-    breakStart: string
-    breakDurationMinutes: number
-  }>((resolve) => {
-    chrome.storage.sync.get(
-      {
-        hibobHelperRandomizeEnabled: false,
-        hibobHelperRandomizeMinutes: 15,
-        hibobHelperBreakEnabled: false,
-        hibobHelperBreakStart: '12:00',
-        hibobHelperBreakDurationMinutes: 30,
-      },
-      (result) => {
-        const values = result as Record<string, unknown>
-        const enabled = values.hibobHelperRandomizeEnabled
-        const minutes = values.hibobHelperRandomizeMinutes
-        const breakEnabled = values.hibobHelperBreakEnabled
-        const breakStart = values.hibobHelperBreakStart
-        const breakDuration = values.hibobHelperBreakDurationMinutes
-        const parsedMinutes =
-          typeof minutes === 'number' ? minutes : Number.parseInt(String(minutes ?? ''), 10)
-        const parsedBreakDuration =
-          typeof breakDuration === 'number'
-            ? breakDuration
-            : Number.parseInt(String(breakDuration ?? ''), 10)
-        const resolvedBreakStart =
-          typeof breakStart === 'string' && breakStart.trim() ? breakStart : '12:00'
-        resolve({
-          randomizeEnabled: typeof enabled === 'boolean' ? enabled : Boolean(enabled ?? false),
-          randomizeMinutes: Number.isFinite(parsedMinutes) ? parsedMinutes : 15,
-          breakEnabled:
-            typeof breakEnabled === 'boolean' ? breakEnabled : Boolean(breakEnabled ?? false),
-          breakStart: resolvedBreakStart,
-          breakDurationMinutes: Number.isFinite(parsedBreakDuration)
-            ? parsedBreakDuration
-            : 30,
-        })
-      }
-    )
-  })
-
-const setStoredSettings = (settings: {
-  randomizeEnabled: boolean
-  randomizeMinutes: number
-  breakEnabled: boolean
-  breakStart: string
-  breakDurationMinutes: number
-}) =>
-  new Promise<void>((resolve) => {
-    chrome.storage.sync.set(
-      {
-        hibobHelperRandomizeEnabled: settings.randomizeEnabled,
-        hibobHelperRandomizeMinutes: settings.randomizeMinutes,
-        hibobHelperBreakEnabled: settings.breakEnabled,
-        hibobHelperBreakStart: settings.breakStart,
-        hibobHelperBreakDurationMinutes: settings.breakDurationMinutes,
-      },
-      () => resolve()
-    )
-  })
-
-const isValidTime = (value: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value)
 
 declare global {
   interface Window {
@@ -146,6 +59,9 @@ if (!window.__hibobHelperInjected) {
         options
       )
 
+      const failed = result.results.filter((row) => row.status === 'failed').length
+      const skipped = result.results.filter((row) => row.status === 'skipped').length
+
       return {
         response: {
           type: 'AUTOMATION_RESULT',
@@ -153,6 +69,9 @@ if (!window.__hibobHelperInjected) {
           success: !result.cancelled,
           processed: result.processed,
           cancelled: result.cancelled,
+          results: result.results,
+          failed,
+          skipped,
         } as AutomationResultMessage,
       }
     } catch (error) {

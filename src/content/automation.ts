@@ -1,302 +1,79 @@
+import type { RowResult, RowResultStatus } from '../shared/messaging'
+import { TIMING } from './timing'
 import {
-  clickElement,
-  commitInputValue,
-  findButtonByText,
-  hasRedIndicator,
-  isElementVisible,
-  sleep,
-  waitForCondition,
-} from './dom'
+  createRowContext,
+  ensureEntry,
+  extractRowLabel,
+  fillTimes,
+  findRowById,
+  getWarningRowIds,
+  isWarningRow,
+  openSidebar,
+  resolveTimes,
+  RowError,
+  saveEntry,
+  verifyRowCleared,
+  type AutomationOptions,
+} from './steps'
 
 const LOG_PREFIX = '[HiBob Helper]'
 
-// Heuristic selectors for the red warning badge in the attendance table.
-const warningSelectors = [
-  '.alert-icons .b-icon-error',
-  '.alert-icons .error-icon',
-  '.alert-icons .alert-label',
-  '[data-icon-before="error"]',
-  '[data-qa*="warning" i]',
-  '[data-qa*="alert" i]',
-  '[data-qa*="missing" i]',
-  '[aria-label*="warning" i]',
-  '[aria-label*="missing" i]',
-  '[title*="warning" i]',
-  '[title*="missing" i]',
-  '.warning',
-  '.alert',
-  '.error',
-].join(',')
+const isCancelled = (error: unknown) =>
+  error instanceof Error && error.message === 'Cancelled'
 
-const normalize = (value: string) => value.toLowerCase().replace(/\s+/g, ' ').trim()
+type RowOutcome =
+  | { cancelled: true }
+  | { cancelled?: false; status: RowResultStatus; reason?: string }
 
-const isDataRow = (row: Element) => {
-  if (!(row instanceof HTMLElement)) return false
-  if (row.classList.contains('row-summary') || row.classList.contains('is-summary')) return false
-  return !!row.querySelector('[role="gridcell"]')
-}
-
-const getTableRows = () => {
-  const pinnedRows = Array.from(
-    document.querySelectorAll('.ag-pinned-left-cols-container [role="row"].ag-row')
-  ).filter(isDataRow)
-  if (pinnedRows.length) return pinnedRows
-
-  const rows = Array.from(document.querySelectorAll('table tbody tr'))
-  if (rows.length) return rows
-
-  return Array.from(document.querySelectorAll('[role="row"]')).filter((row) => {
-    return row.querySelector('[role="gridcell"]')
-  })
-}
-
-const extractRowLabel = (row: Element) => {
-  const dateCell = row.querySelector('[col-id*="date"] .ag-cell-value')
-  const dateText = dateCell?.textContent?.trim()
-  if (dateText) return dateText
-
-  const cells = Array.from(row.querySelectorAll('td, [role="gridcell"]'))
-  const texts = cells
-    .map((cell) => cell.textContent?.trim() ?? '')
-    .filter(Boolean)
-    .filter((text) => text !== '1' && text !== '!')
-
-  return texts[0] ?? row.textContent?.trim() ?? ''
-}
-
-const isWarningRow = (row: Element) => {
-  if (row.querySelector(warningSelectors)) return true
-  return hasRedIndicator(row)
-}
-
-const getWarningRowIds = () => {
-  return getTableRows()
-    .filter(isWarningRow)
-    .map((row) => row.getAttribute('row-id'))
-    .filter((rowId): rowId is string => Boolean(rowId))
-}
-
-const findRowById = (rowId: string) => {
-  return (
-    document.querySelector<HTMLElement>(
-      `.ag-pinned-left-cols-container [role="row"][row-id="${CSS.escape(rowId)}"]`
-    ) ??
-    document.querySelector<HTMLElement>(
-      `.ag-center-cols-container [role="row"][row-id="${CSS.escape(rowId)}"]`
-    )
-  )
-}
-
-const getClickTarget = (row: Element) => {
-  const rowId = row.getAttribute('row-id')
-  if (rowId) {
-    const centerRow = document.querySelector<HTMLElement>(
-      `.ag-center-cols-container [role="row"][row-id="${CSS.escape(rowId)}"]`
-    )
-    if (centerRow) return centerRow
-  }
-  return row as HTMLElement
-}
-
-// Sidebar has inconsistent markup; scan common containers and pick a visible one.
-const findSidebar = () => {
-  const selectors = [
-    '.rpp-panel-content',
-    'app-attendance-entries-panel',
-    'app-attendance-entry-form',
-    'aside',
-    '[role="dialog"]',
-    '[data-qa*="sidebar" i]',
-    '[class*="Sidebar"]',
-    '[class*="side-panel"]',
-    '[class*="sidepanel"]',
-  ].join(',')
-
-  const candidates = Array.from(document.querySelectorAll<HTMLElement>(selectors))
-
-  return candidates.find((candidate) => isElementVisible(candidate)) ?? null
-}
-
-const waitForSidebar = async (
+/**
+ * Run the per-row pipeline with a bounded retry. Only pre-save (retryable)
+ * failures are retried; a save that may already have submitted is never
+ * retried, to avoid duplicate entries. The row is re-resolved before each
+ * attempt because ag-grid virtualization recycles row nodes.
+ */
+const processRow = async (
+  rowId: string,
   rowLabel: string,
-  previousSnapshot: string,
-  shouldCancel: () => boolean
-) => {
-  const normalizedLabel = normalize(rowLabel)
-  const normalizedPrevious = normalize(previousSnapshot)
-  return waitForCondition(
-    () => {
-      const sidebar = findSidebar()
-      if (!sidebar) return false
-      if (!normalizedLabel) return sidebar
-      const sidebarText = normalize(sidebar.textContent ?? '')
-    if (sidebarText.includes(normalizedLabel)) return sidebar
-    if (
-      normalizedPrevious &&
-      sidebarText &&
-      sidebarText !== normalizedPrevious &&
-      (sidebarText.includes('entries') ||
-        sidebarText.includes('add entry') ||
-        sidebarText.includes('clock in'))
-    ) {
-      return sidebar
+  clockIn: string,
+  clockOut: string,
+  shouldCancel: () => boolean,
+  options: AutomationOptions
+): Promise<RowOutcome> => {
+  const times = resolveTimes(clockIn, clockOut, options)
+  let lastReason: string | undefined
+
+  for (let attempt = 1; attempt <= TIMING.maxRowAttempts; attempt += 1) {
+    if (shouldCancel()) return { cancelled: true }
+
+    const row = findRowById(rowId)
+    if (!row) return { status: 'skipped', reason: 'row-not-found' }
+    if (!isWarningRow(row)) return { status: 'skipped', reason: 'no-warning' }
+
+    const ctx = createRowContext(rowId, rowLabel, row, times, shouldCancel)
+
+    try {
+      await openSidebar(ctx)
+      await ensureEntry(ctx)
+      await fillTimes(ctx)
+      await saveEntry(ctx)
+      await verifyRowCleared(ctx)
+      return { status: 'saved' }
+    } catch (error) {
+      if (isCancelled(error) || shouldCancel()) return { cancelled: true }
+
+      if (error instanceof RowError) {
+        lastReason = error.reason
+        console.warn(`${LOG_PREFIX} ${error.message} (attempt ${attempt}/${TIMING.maxRowAttempts})`)
+        if (!error.retryable) return { status: 'failed', reason: error.reason }
+        // Retryable: fall through to the next attempt.
+      } else {
+        console.error(`${LOG_PREFIX} Unexpected error on ${rowLabel}.`, error)
+        return { status: 'failed', reason: 'unknown' }
+      }
     }
-    if (!normalizedPrevious && sidebarText) return sidebar
-    return false
-  },
-    { shouldCancel }
-  )
-}
-
-const findAddEntryButton = (sidebar: HTMLElement) => {
-  return (
-    sidebar.querySelector<HTMLElement>('#empty-state-action-btn') ??
-    sidebar.querySelector<HTMLElement>('[data-testid="empty-state-action-btn"]') ??
-    sidebar.querySelector<HTMLElement>('.add-entry-btn-side-panel button') ??
-    sidebar.querySelector<HTMLElement>('[data-icon-before="time-add"]') ??
-    findButtonByText(sidebar, ['add entry', 'add'])
-  )
-}
-
-const findSidePanelAddEntryButton = (sidebar: HTMLElement) => {
-  return (
-    sidebar.querySelector<HTMLElement>('.add-entry-btn-side-panel button') ??
-    sidebar.querySelector<HTMLElement>('[data-icon-before="time-add"]') ??
-    findButtonByText(sidebar, ['add entry'])
-  )
-}
-
-const findTimePickerInputs = (container: ParentNode, labelText: string) => {
-  const normalizedLabel = normalize(labelText)
-  const labels = Array.from(container.querySelectorAll('label'))
-
-  const resolveInputs = (root: ParentNode | null) => {
-    if (!root) return null
-    const hours = root.querySelector<HTMLInputElement>('input.btmpckr-input-hours')
-    const minutes = root.querySelector<HTMLInputElement>('input.btmpckr-input-minutes')
-    if (hours && minutes) return { hours, minutes }
-    return null
   }
 
-  for (const label of labels) {
-    const labelValue = normalize(label.textContent ?? '')
-    if (!labelValue.includes(normalizedLabel)) continue
-
-    const htmlFor = label.getAttribute('for')
-    if (htmlFor) {
-      const forTarget = container.querySelector(`#${CSS.escape(htmlFor)}`)
-      const inputs = resolveInputs(forTarget)
-      if (inputs) return inputs
-    }
-
-    const timepickerRoot =
-      label.closest('b-timepicker') ??
-      label.parentElement?.closest('b-timepicker') ??
-      label.parentElement
-    const inputs = resolveInputs(timepickerRoot)
-    if (inputs) return inputs
-  }
-
-  const timePickers = Array.from(container.querySelectorAll('b-timepicker'))
-  for (const picker of timePickers) {
-    const label = picker.querySelector('label')
-    const labelValue = normalize(label?.textContent ?? '')
-    if (!labelValue.includes(normalizedLabel)) continue
-    const inputs = resolveInputs(picker)
-    if (inputs) return inputs
-  }
-
-  return null
-}
-
-const getEntryBlocks = (container: ParentNode) => {
-  const entries = Array.from(container.querySelectorAll<HTMLElement>('app-attendance-entry'))
-  if (entries.length) return entries
-  return Array.from(container.querySelectorAll<HTMLElement>('.entry-panel'))
-}
-
-const getEntryInputs = (entry: ParentNode) => {
-  const clockIn = findTimePickerInputs(entry, 'Clock in')
-  const clockOut = findTimePickerInputs(entry, 'Clock out')
-  if (!clockIn || !clockOut) return null
-  return { clockIn, clockOut }
-}
-
-const parseTime = (value: string) => {
-  const [hours = '00', minutes = '00'] = value.split(':')
-  return {
-    hours: hours.padStart(2, '0'),
-    minutes: minutes.padStart(2, '0'),
-  }
-}
-
-const toMinutes = (value: string) => {
-  const [hours = '0', minutes = '0'] = value.split(':')
-  const hoursValue = Number.parseInt(hours, 10)
-  const minutesValue = Number.parseInt(minutes, 10)
-  const total =
-    Number.isFinite(hoursValue) && Number.isFinite(minutesValue)
-      ? hoursValue * 60 + minutesValue
-      : 0
-  return Math.min(1439, Math.max(0, total))
-}
-
-const fromMinutes = (totalMinutes: number) => {
-  const safeMinutes = Math.min(1439, Math.max(0, totalMinutes))
-  const hours = Math.floor(safeMinutes / 60)
-  const minutes = safeMinutes % 60
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
-}
-
-const getRandomOffset = (maxMinutes: number) => {
-  if (!Number.isFinite(maxMinutes) || maxMinutes <= 0) return 0
-  const magnitude = Math.floor(Math.random() * (maxMinutes + 1))
-  const direction = Math.random() < 0.5 ? -1 : 1
-  return magnitude * direction
-}
-
-const applyOffset = (timeValue: string, offsetMinutes: number) => {
-  if (!offsetMinutes) return timeValue
-  const base = toMinutes(timeValue)
-  return fromMinutes(base + offsetMinutes)
-}
-
-const addMinutes = (timeValue: string, minutes: number) => {
-  if (!Number.isFinite(minutes) || minutes === 0) return timeValue
-  return fromMinutes(toMinutes(timeValue) + minutes)
-}
-
-const hasMissingTimeErrors = (root: ParentNode) => {
-  const text = normalize((root as HTMLElement).textContent ?? '')
-  return text.includes('missing clock in') || text.includes('missing clock out')
-}
-
-const waitForSaveCompletion = async (
-  sidebar: HTMLElement,
-  shouldCancel: () => boolean
-) => {
-  const successToast = () => {
-    const toastCandidates = Array.from(
-      document.querySelectorAll<HTMLElement>(
-        '[role="alert"], [role="status"], .toast, [class*="toast"], [class*="Toast"]'
-      )
-    )
-
-    return toastCandidates.some((toast) =>
-      /updated|saved|attendance/i.test(toast.textContent ?? '')
-    )
-  }
-
-  try {
-    await waitForCondition(
-      () => !document.body.contains(sidebar) || !isElementVisible(sidebar) || successToast(),
-      { timeout: 20000, shouldCancel }
-    )
-    return true
-  } catch {
-    console.warn(`${LOG_PREFIX} Save completion timed out. Continuing...`)
-    return false
-  }
+  return { status: 'failed', reason: lastReason ?? 'unknown' }
 }
 
 export const runAutomation = async (
@@ -305,19 +82,8 @@ export const runAutomation = async (
   requestId: string,
   shouldCancel: () => boolean,
   onProgress?: (progress: { total: number; completed: number; saved: number }) => void,
-  options?: {
-    randomizeEnabled?: boolean
-    randomizeMinutes?: number
-    breakEnabled?: boolean
-    breakStart?: string
-    breakDurationMinutes?: number
-  }
+  options?: AutomationOptions
 ) => {
-  const randomizeEnabled = options?.randomizeEnabled ?? false
-  const randomizeMinutes = options?.randomizeMinutes ?? 0
-  const breakEnabled = options?.breakEnabled ?? false
-  const breakStart = options?.breakStart ?? '12:00'
-  const breakDurationMinutes = Math.max(0, options?.breakDurationMinutes ?? 0)
   const sendProgress = (completed: number, total: number, saved: number) => {
     chrome.runtime.sendMessage({
       type: 'AUTOMATION_PROGRESS',
@@ -330,6 +96,7 @@ export const runAutomation = async (
   }
 
   const processedRowIds = new Set<string>()
+  const results: RowResult[] = []
   let processed = 0
   let iterations = 0
   const total = getWarningRowIds().length
@@ -337,15 +104,13 @@ export const runAutomation = async (
 
   sendProgress(completed, total, processed)
 
-  while (iterations < 50) {
+  while (iterations < TIMING.maxRowIterations) {
     if (shouldCancel()) {
       console.info(`${LOG_PREFIX} Cancellation requested. Stopping.`)
-      return { processed, cancelled: true }
+      return { processed, cancelled: true, results }
     }
-    const pendingRowIds = getWarningRowIds().filter(
-      (rowId) => !processedRowIds.has(rowId)
-    )
 
+    const pendingRowIds = getWarningRowIds().filter((rowId) => !processedRowIds.has(rowId))
     if (pendingRowIds.length === 0) break
 
     console.info(`${LOG_PREFIX} Pending warning row(s): ${pendingRowIds.length}.`)
@@ -359,157 +124,33 @@ export const runAutomation = async (
     const row = findRowById(rowId)
     if (!row) {
       console.warn(`${LOG_PREFIX} Row not found for id ${rowId}. Skipping.`)
+      results.push({ rowId, label: rowId, status: 'skipped', reason: 'row-not-found' })
       continue
     }
 
+    // A row that no longer has a warning was likely handled elsewhere; skip
+    // quietly without recording, matching the previous behavior.
     if (!isWarningRow(row)) {
       console.info(`${LOG_PREFIX} Row ${rowId} no longer has a warning. Skipping.`)
       continue
     }
 
     const rowLabel = extractRowLabel(row)
+    const outcome = await processRow(rowId, rowLabel, clockIn, clockOut, shouldCancel, options ?? {})
 
-    try {
-      if (shouldCancel()) {
-        console.info(`${LOG_PREFIX} Cancellation requested. Stopping.`)
-      return { processed, cancelled: true }
+    if (outcome.cancelled) {
+      console.info(`${LOG_PREFIX} Cancellation requested. Stopping.`)
+      return { processed, cancelled: true, results }
     }
-      const previousSnapshot = findSidebar()?.textContent ?? ''
-      row.scrollIntoView({ block: 'center', behavior: 'smooth' })
-      await sleep(250)
 
-      const clickable = getClickTarget(row)
-      clickElement(clickable)
-
-      const sidebar = await waitForSidebar(rowLabel, previousSnapshot, shouldCancel)
-      const sidebarRoot =
-        sidebar.closest<HTMLElement>(
-          '#attendance-right-panel, [role="complementary"], sidebar'
-        ) ?? sidebar
-
-      const ensureEntries = async (count: number) =>
-        waitForCondition(() => {
-          const entries = getEntryBlocks(sidebarRoot)
-          return entries.length >= count ? entries : null
-        }, { root: sidebarRoot, shouldCancel })
-
-      let entries = getEntryBlocks(sidebarRoot)
-      if (entries.length === 0) {
-        const addEntryButton = await waitForCondition(
-          () => findAddEntryButton(sidebarRoot),
-          { root: sidebarRoot, timeout: 15000, shouldCancel }
-        )
-        clickElement(addEntryButton)
-        entries = await ensureEntries(1)
-      }
-
-      const firstEntry = entries[0]
-      let firstInputs = getEntryInputs(firstEntry)
-      if (!firstInputs) {
-        const entryInputs = await waitForCondition(
-          () => getEntryInputs(firstEntry),
-          { root: firstEntry, timeout: 8000, shouldCancel }
-        )
-        firstInputs = entryInputs
-      }
-
-      if (!firstInputs) {
-        console.warn(`${LOG_PREFIX} Time inputs not found for ${rowLabel}.`)
-        continue
-      }
-
-      const offset = randomizeEnabled ? getRandomOffset(randomizeMinutes) : 0
-      const clockInValue = applyOffset(clockIn, offset)
-      const clockOutValue = applyOffset(clockOut, offset)
-
-      if (breakEnabled) {
-        const breakStartValue = breakStart
-        const breakEndValue = addMinutes(breakStartValue, breakDurationMinutes)
-        const finalClockOutValue = addMinutes(clockOutValue, breakDurationMinutes)
-
-        const firstInParts = parseTime(clockInValue)
-        const firstOutParts = parseTime(breakStartValue)
-        commitInputValue(firstInputs.clockIn.hours, firstInParts.hours)
-        commitInputValue(firstInputs.clockIn.minutes, firstInParts.minutes)
-        commitInputValue(firstInputs.clockOut.hours, firstOutParts.hours)
-        commitInputValue(firstInputs.clockOut.minutes, firstOutParts.minutes)
-
-        const sidePanelAddButton = await waitForCondition(
-          () => findSidePanelAddEntryButton(sidebarRoot),
-          { root: sidebarRoot, timeout: 8000, shouldCancel }
-        )
-        clickElement(sidePanelAddButton)
-
-        const updatedEntries = await ensureEntries(2)
-        const secondEntry = updatedEntries[1]
-        const secondInputs = await waitForCondition(
-          () => getEntryInputs(secondEntry),
-          { root: secondEntry, timeout: 8000, shouldCancel }
-        )
-
-        const secondInParts = parseTime(breakEndValue)
-        const secondOutParts = parseTime(finalClockOutValue)
-        commitInputValue(secondInputs.clockIn.hours, secondInParts.hours)
-        commitInputValue(secondInputs.clockIn.minutes, secondInParts.minutes)
-        commitInputValue(secondInputs.clockOut.hours, secondOutParts.hours)
-        commitInputValue(secondInputs.clockOut.minutes, secondOutParts.minutes)
-      } else {
-        const clockInParts = parseTime(clockInValue)
-        const clockOutParts = parseTime(clockOutValue)
-        commitInputValue(firstInputs.clockIn.hours, clockInParts.hours)
-        commitInputValue(firstInputs.clockIn.minutes, clockInParts.minutes)
-        commitInputValue(firstInputs.clockOut.hours, clockOutParts.hours)
-        commitInputValue(firstInputs.clockOut.minutes, clockOutParts.minutes)
-      }
-
-      await waitForCondition(() => !hasMissingTimeErrors(sidebarRoot), {
-        root: sidebarRoot,
-        timeout: 4000,
-        shouldCancel,
-      }).catch(() => {
-        console.warn(`${LOG_PREFIX} Time validation still showing missing warnings.`)
-      })
-
-      const saveButton =
-        sidebarRoot.querySelector<HTMLElement>('.save-btn-side-panel button') ??
-        findButtonByText(sidebarRoot, ['save'])
-      if (!saveButton) {
-        console.warn(`${LOG_PREFIX} Save button not found for ${rowLabel}.`)
-        continue
-      }
-
-      clickElement(saveButton)
-      if (shouldCancel()) {
-        console.info(`${LOG_PREFIX} Cancellation requested. Stopping.`)
-      return { processed, cancelled: true }
-    }
-      const saved = await waitForSaveCompletion(sidebarRoot, shouldCancel)
-      if (!saved) {
-        console.warn(`${LOG_PREFIX} Save did not complete for ${rowLabel}.`)
-        continue
-      }
-
+    if (outcome.status === 'saved') {
       processed += 1
       sendProgress(completed, total, processed)
       console.info(`${LOG_PREFIX} Updated ${rowLabel}.`)
-      await waitForCondition(
-        () => {
-          const refreshedRow = findRowById(rowId)
-          return refreshedRow ? !isWarningRow(refreshedRow) : true
-        },
-        { timeout: 8000, shouldCancel }
-      ).catch(() => {
-        console.warn(`${LOG_PREFIX} Warning badge did not clear for ${rowLabel}.`)
-      })
-      await sleep(400)
-    } catch (error) {
-      if (shouldCancel() || (error instanceof Error && error.message === 'Cancelled')) {
-        console.info(`${LOG_PREFIX} Cancellation requested. Stopping.`)
-        return { processed, cancelled: true }
-      }
-      console.error(`${LOG_PREFIX} Failed on row ${rowLabel}.`, error)
     }
+
+    results.push({ rowId, label: rowLabel, status: outcome.status, reason: outcome.reason })
   }
 
-  return { processed, cancelled: false }
+  return { processed, cancelled: false, results }
 }

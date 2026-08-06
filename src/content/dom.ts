@@ -1,3 +1,5 @@
+import { TIMING } from './timing'
+
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 export const isElementVisible = (element: Element | null): element is Element => {
@@ -38,49 +40,59 @@ export const commitInputValue = (input: HTMLInputElement, value: string) => {
 export const waitForCondition = async <T>(
   condition: () => T | null | false,
   {
-    timeout = 15000,
-    interval = 200,
+    timeout = TIMING.defaultWaitTimeoutMs,
+    interval = TIMING.pollIntervalMs,
     root = document,
     shouldCancel,
+    observeAttributes = true,
   }: {
     timeout?: number
     interval?: number
     root?: ParentNode
     shouldCancel?: () => boolean
+    /**
+     * Observe attribute mutations in addition to childList/subtree. Defaults to
+     * true for backward compatibility. Set false for purely structural waits
+     * (node insertion/removal) to avoid the attribute-mutation firehose on a
+     * document-scoped observer — the poll interval still covers value/style
+     * changes.
+     */
+    observeAttributes?: boolean
   } = {}
 ): Promise<T> => {
   const start = Date.now()
 
   return new Promise((resolve, reject) => {
     let settled = false
+    let observer: MutationObserver | null = null
+    let intervalId: number | null = null
 
-    const cleanup = (observer?: MutationObserver, intervalId?: number) => {
+    const cleanup = () => {
       settled = true
-      if (observer) observer.disconnect()
-      if (intervalId) window.clearInterval(intervalId)
+      observer?.disconnect()
+      if (intervalId !== null) window.clearInterval(intervalId)
     }
 
     const checkNow = () => {
       if (settled) return
       if (shouldCancel?.()) {
-        cleanup(observer, intervalId)
+        cleanup()
         reject(new Error('Cancelled'))
         return
       }
       const result = condition()
       if (result) {
-        cleanup(observer, intervalId)
+        cleanup()
         resolve(result)
       } else if (Date.now() - start >= timeout) {
-        cleanup(observer, intervalId)
+        cleanup()
         reject(new Error('Timed out waiting for condition.'))
       }
     }
 
-    const observer = new MutationObserver(checkNow)
-    observer.observe(root, { childList: true, subtree: true, attributes: true })
-
-    const intervalId = window.setInterval(checkNow, interval)
+    observer = new MutationObserver(checkNow)
+    observer.observe(root, { childList: true, subtree: true, attributes: observeAttributes })
+    intervalId = window.setInterval(checkNow, interval)
     checkNow()
   })
 }
