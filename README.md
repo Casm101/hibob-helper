@@ -104,6 +104,16 @@ This project builds a local unpacked Chrome extension from the `dist` directory.
 6. Click `Load unpacked`
 7. Select the generated `dist` directory
 
+### Running tests
+
+Unit tests (time math, selector resolution, DOM helpers) run with [Vitest](https://vitest.dev/) in a jsdom environment:
+
+```sh
+npm test
+```
+
+Use `npm run test:watch` for watch mode during development.
+
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 ## Usage
@@ -129,9 +139,9 @@ Notes:
 ## Roadmap
 
 - [ ] Add dry-run or preview mode before saving
-- [ ] Add row-level success, skip, and failure reporting
-- [ ] Add automated tests for time logic and selector parsing
-- [ ] Improve resilience against HiBob DOM and selector changes
+- [x] Add row-level success, skip, and failure reporting
+- [x] Add automated tests for time logic and selector parsing
+- [x] Improve resilience against HiBob DOM and selector changes
 
 See the [open issues](https://github.com/Casm101/hibob-helper/issues) for proposed improvements and bugs.
 
