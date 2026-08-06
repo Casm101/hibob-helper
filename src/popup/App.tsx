@@ -5,6 +5,7 @@ import type {
     AutomationProgressMessage,
     AutomationResultMessage,
     CancelAutomationMessage,
+    RowResult,
     RunAutomationMessage,
 } from "../shared/messaging";
 import { isValidTime } from "../shared/validation";
@@ -36,6 +37,27 @@ type ViewState = "main" | "settings";
 const initialStatus: StatusState = {
     state: "idle",
     message: "Ready to fill missing attendance rows.",
+};
+
+const reasonLabels: Record<string, string> = {
+    "row-not-found": "Row disappeared",
+    "no-warning": "No longer missing",
+    "sidebar-timeout": "Panel didn't open",
+    "no-entry": "Entry didn't appear",
+    "inputs-not-found": "Time inputs missing",
+    "save-not-found": "Save button missing",
+    "save-timeout": "Save didn't confirm",
+    unknown: "Unexpected error",
+};
+
+const reasonLabel = (reason?: string) =>
+    (reason && reasonLabels[reason]) ?? "Unknown reason";
+
+const summarizeIssues = (failed: number, skipped: number) => {
+    const parts: string[] = [];
+    if (failed > 0) parts.push(`${failed} failed`);
+    if (skipped > 0) parts.push(`${skipped} skipped`);
+    return parts.length ? ` ${parts.join(", ")}.` : "";
 };
 
 const sendMessage = (message: RunAutomationMessage) =>
@@ -75,6 +97,7 @@ export const App = () => {
     const [clockOut, setClockOut] = useState("17:00");
     const [supported, setSupported] = useState(false);
     const [status, setStatus] = useState<StatusState>(initialStatus);
+    const [rowIssues, setRowIssues] = useState<RowResult[]>([]);
     const [progress, setProgress] = useState({
         total: 0,
         completed: 0,
@@ -175,6 +198,7 @@ export const App = () => {
         const requestId = crypto.randomUUID();
         activeRequestId.current = requestId;
         setProgress({ total: 0, completed: 0, saved: 0 });
+        setRowIssues([]);
         const response = await sendMessage({
             type: "RUN_AUTOMATION",
             requestId,
@@ -197,6 +221,14 @@ export const App = () => {
             activeRequestId.current = null;
             return;
         }
+
+        const issues = (response.results ?? []).filter(
+            (row) => row.status !== "saved",
+        );
+        setRowIssues(issues);
+        const failed = response.failed ?? issues.filter((r) => r.status === "failed").length;
+        const skipped = response.skipped ?? issues.filter((r) => r.status === "skipped").length;
+        const issueSummary = summarizeIssues(failed, skipped);
 
         if (response.cancelled) {
             const processed = response.processed ?? progress.saved;
@@ -223,8 +255,8 @@ export const App = () => {
 
         const processed = response.processed ?? 0;
         setStatus({
-            state: "success",
-            message: `Automation complete. Updated ${processed} row${processed === 1 ? "" : "s"}.`,
+            state: failed > 0 ? "error" : "success",
+            message: `Automation complete. Updated ${processed} row${processed === 1 ? "" : "s"}.${issueSummary}`,
         });
         activeRequestId.current = null;
     };
@@ -399,6 +431,37 @@ export const App = () => {
                             >
                                 {status.message}
                             </div>
+                        ) : null}
+
+                        {rowIssues.length > 0 ? (
+                            <details className="mt-2 rounded-xl bg-slate-100 px-3 py-2 text-xs dark:bg-slate-800/70">
+                                <summary className="cursor-pointer font-medium text-slate-600 dark:text-slate-200">
+                                    {rowIssues.length} row
+                                    {rowIssues.length === 1 ? "" : "s"} need
+                                    attention
+                                </summary>
+                                <ul className="mt-2 space-y-1">
+                                    {rowIssues.map((row) => (
+                                        <li
+                                            key={row.rowId}
+                                            className="flex items-center justify-between gap-2 text-slate-500 dark:text-slate-300"
+                                        >
+                                            <span className="truncate">
+                                                {row.label || row.rowId}
+                                            </span>
+                                            <span
+                                                className={`shrink-0 font-medium ${
+                                                    row.status === "failed"
+                                                        ? "text-rose-600 dark:text-rose-300"
+                                                        : "text-slate-500 dark:text-slate-400"
+                                                }`}
+                                            >
+                                                {reasonLabel(row.reason)}
+                                            </span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </details>
                         ) : null}
                     </>
                 ) : (
